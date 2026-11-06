@@ -35,7 +35,9 @@ android {
     namespace = "eu.kanade.tachiyomi"
 
     defaultConfig {
-        applicationId = "app.mihon"
+        // PLUS --> Re:Lad has its own app ID so it installs next to Mihon instead of replacing it
+        applicationId = "app.relad"
+        // PLUS <--
 
         versionCode = 39
         versionName = "0.21.3"
@@ -121,6 +123,20 @@ android {
     sourceSets {
         getByName("nightly").res.directories.add("src/debug/res")
         getByName("benchmark").res.directories.add("src/debug/res")
+
+        // PLUS --> Re:Lad name, icon and logo are overlaid from plus/app-res instead of editing Mihon's resources.
+        // Debug-looking builds drop Mihon's src/debug/res, whose icon would clash with ours.
+        val plusRes = layout.settingsDirectory.dir("plus/app-res").asFile.path
+        listOf("release", "foss").forEach { buildType ->
+            getByName(buildType).res.directories.addAll(listOf("$plusRes/common", "$plusRes/release"))
+        }
+        listOf("debug", "nightly", "benchmark").forEach { buildType ->
+            getByName(buildType).res.directories.run {
+                removeIf { it.replace('\\', '/').endsWith("src/debug/res") }
+                addAll(listOf("$plusRes/common", "$plusRes/dev"))
+            }
+        }
+        // PLUS <--
     }
 
     splits {

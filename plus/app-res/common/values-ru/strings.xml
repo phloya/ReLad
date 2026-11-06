@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="plus_based_on_mihon">Основано на Mihon</string>
+    <string name="plus_based_on_mihon_summary">Re:Lad — форк открытой читалки Mihon (Apache 2.0)</string>
+    <string name="plus_donate_intro">Re:Lad — независимый проект. Если он вам нравится, вы можете поддержать разработку:</string>
+</resources>

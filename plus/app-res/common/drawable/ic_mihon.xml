@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PLUS: Re:Lad logo "R:L". Keeps Mihon's resource name ic_mihon so the splash screen,
+  notifications and the More/About header show Re:Lad without editing Mihon's code.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="256dp"
+    android:height="163.84dp"
+    android:viewportWidth="250"
+    android:viewportHeight="160">
+    <group
+        android:translateX="14"
+        android:translateY="14">
+        <path
+            android:pathData="M0,132 V0 H30 A33,33 0 0 1 30,66 H0 M30,66 L70,132 M166,0 V132 H222"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="28"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M104,34 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0 M104,98 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0" />
+    </group>
+</vector>

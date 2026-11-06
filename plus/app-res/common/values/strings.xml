@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PLUS: Re:Lad strings shared by all builds (see plus/HOOKS.md) -->
+<resources>
+    <string name="plus_based_on_mihon">Based on Mihon</string>
+    <string name="plus_based_on_mihon_summary">Re:Lad is a fork of the open source Mihon reader (Apache 2.0)</string>
+    <string name="plus_donate_intro">Re:Lad is an independent project. If you enjoy it, you can support its development:</string>
+</resources>

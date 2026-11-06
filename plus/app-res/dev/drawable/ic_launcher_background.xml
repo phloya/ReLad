@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PLUS: Re:Lad launcher icon background for debug, nightly and benchmark builds (dark, to tell them apart) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="432"
+    android:viewportHeight="432">
+    <path
+        android:pathData="M0,0h432v432h-432z"
+        android:fillColor="#2E3943" />
+</vector>
