@@ -37,11 +37,9 @@ class AppUpdateChecker(
 }
 
 val GITHUB_REPO: String by lazy {
-    if (isNightlyBuildType) {
-        "mihonapp/mihon-preview"
-    } else {
-        "mihonapp/mihon"
-    }
+    // PLUS --> Re:Lad updates come from its own GitHub releases (no separate preview repo yet)
+    "phloya/ReLad"
+    // PLUS <--
 }
 
 val RELEASE_TAG: String by lazy {
