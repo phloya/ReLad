@@ -58,8 +58,8 @@ import tachiyomi.presentation.core.i18n.stringResource
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.Locale
-import androidx.compose.ui.res.stringResource as androidStringResource
 import kotlin.time.Instant
+import androidx.compose.ui.res.stringResource as androidStringResource
 
 object AboutScreen : Screen() {
 
