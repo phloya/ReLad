@@ -1,0 +1,102 @@
+# Re:Lad weekly upstream check: tries merging new Mihon changes (without pushing anything)
+# and opens or updates an issue when there is something to merge or a conflict to resolve.
+# The followed Mihon branch is set in plus/upstream.properties.
+name: Re:Lad upstream check
+
+on:
+  schedule:
+    - cron: '0 5 * * 1' # Mondays, 05:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Check Mihon for updates
+    if: github.repository == 'phloya/ReLad'
+    runs-on: 'ubuntu-26.04'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Probe merges from Mihon
+        id: probe
+        run: |
+          set -uo pipefail
+          git config user.name "Re:Lad upstream check"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/mihonapp/mihon.git
+          git fetch --quiet --tags upstream '+refs/heads/*:refs/remotes/upstream/*'
+
+          tracked="$(sed -n 's/^trackedBranch=//p' plus/upstream.properties)"
+          newest_release="$(git branch -r --list 'upstream/*' --format='%(refname:lstrip=3)' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+          attention=0
+
+          # Prints one report line for merging upstream/$1 into our main; returns 1 on conflicts.
+          probe() {
+            local branch="$1" label="$2" behind conflicts
+            behind="$(git rev-list --count "HEAD..upstream/$branch")"
+            if [ "$behind" = 0 ]; then
+              echo "- **$label** (\`$branch\`): nothing new"
+              return 0
+            fi
+            if git merge --no-commit --no-ff --quiet "upstream/$branch" >/dev/null 2>&1; then
+              echo "- **$label** (\`$branch\`): $behind new commits, merges cleanly"
+              git merge --abort 2>/dev/null || git reset --hard --quiet
+              return 0
+            fi
+            conflicts="$(git diff --name-only --diff-filter=U | sed 's/^/  - `/; s/$/`/')"
+            git merge --abort 2>/dev/null || git reset --hard --quiet
+            echo "- **$label** (\`$branch\`): $behind new commits, **conflicts in**:"
+            echo "$conflicts"
+            return 1
+          }
+
+          {
+            echo "## Mihon upstream check — $(date -u +%Y-%m-%d)"
+            echo
+            echo "Re:Lad follows Mihon \`$tracked\` (plus/upstream.properties)."
+            echo
+
+            if [ "$(git rev-list --count "HEAD..upstream/$tracked")" != 0 ]; then attention=1; fi
+            probe "$tracked" "Followed branch" || attention=1
+
+            new_tags="$(git tag --merged "upstream/$tracked" --no-merged HEAD | sort -V | tr '\n' ' ')"
+            if [ -n "$new_tags" ]; then echo "- New Mihon releases to merge: $new_tags"; fi
+
+            if [ "$tracked" != main ] && [ -n "$newest_release" ] && [ "$newest_release" != "$tracked" ]; then
+              attention=1
+              echo "- **Mihon has a newer release branch \`$newest_release\`.** Switch to it in plus/upstream.properties."
+              probe "$newest_release" "Newer release branch" || true
+            fi
+
+            if [ "$tracked" != main ]; then
+              echo
+              echo "Early warning, not merged until Re:Lad switches to Mihon \`main\`:"
+              probe main "Mihon main" || true
+            fi
+          } > report.md
+
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          echo "attention=$attention" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update issue
+        if: steps.probe.outputs.attention == '1'
+        run: |
+          set -euo pipefail
+          title="Mihon upstream update"
+          number="$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body-file report.md
+          else
+            gh issue create --title "$title" --body-file report.md
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
