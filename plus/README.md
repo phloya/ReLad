@@ -1,6 +1,6 @@
 # plus/ — всё, что Re:Lad добавляет поверх Mihon
 
-Re:Lad — форк [Mihon](https://github.com/mihonapp/mihon). Чтобы обновления Mihon
+Re:Lad построен на [Mihon](https://github.com/mihonapp/mihon). Чтобы обновления Mihon
 вливались без больших конфликтов, наш код живёт отдельно, в этой папке, а в код Mihon
 мы встраиваемся только короткими помеченными точками входа.
 
@@ -32,17 +32,48 @@ Re:Lad — форк [Mihon](https://github.com/mihonapp/mihon). Чтобы об�
 
 ## Обновление из Mihon
 
+### Как устроена история
+
+В репозитории Re:Lad нет тысяч коммитов Mihon. Каждая версия Mihon попадает сюда
+**одним коммитом** «Import Mihon vX.Y.Z» в отдельной ветке `mihon`:
+
+```
+mihon:  Import Mihon v0.21.3 ── Import Mihon v0.21.4 ── …
+                 │                       │ (merge)
+main:            └── наши коммиты ───────┴── наши коммиты …
+```
+
+Git вливает обновления как обычно: общий предок — предыдущий импорт. В последнем
+коммите ветки `mihon` есть служебные строки `Mihon-Ref` и `Mihon-Commit` с точной
+версией Mihon. По ним работают скрипт импорта и еженедельная проверка.
+
+Полная история Mihon нужна только для импорта. Она скачивается из remote `upstream`
+(`https://github.com/mihonapp/mihon`) и живёт только локально. Ветки Mihon лежат
+в `upstream/*`, теги — в `upstream/tags/*`, а не среди наших тегов.
+**Никогда не делать `git push --tags` и не отправлять ветки `upstream/*`.**
+
+### Как обновиться
+
 Ветка Mihon, за которой мы идём, записана в `plus/upstream.properties` (сейчас `0.21.0`,
 позже перейдём на `main`, подробности в `PLAN.md`, раздел 1).
 
-Каждый понедельник workflow **Re:Lad upstream check** пробует влить новые изменения Mihon,
-ничего при этом не отправляя. Если есть что вливать или нашёлся конфликт, он открывает
-задачу «Mihon upstream update» (GitHub пришлёт письмо). Запустить проверку вручную:
-GitHub → Actions → Re:Lad upstream check → Run workflow.
+```bash
+bash plus/tools/import-mihon.sh            # свежая версия отслеживаемой ветки
+bash plus/tools/import-mihon.sh v0.21.4    # или конкретный тег Mihon
+```
 
-Само вливание делаем в ветке `sync/ГГГГ-ММ-ДД`: собираем, проверяем, потом переносим в `main`.
+Скрипт создаёт коммит импорта в `mihon` и вливает его в новую ветку `sync/ГГГГ-ММ-ДД`.
 При конфликте в файле из `HOOKS.md` сохраняем смысл нашей правки и переносим её
-на новый код Mihon.
+на новый код Mihon, затем `git commit`. После сборки и проверки:
+
+```bash
+git switch main && git merge --ff-only sync/ГГГГ-ММ-ДД && git push origin main mihon
+```
+
+Каждый понедельник workflow **Re:Lad upstream check** делает то же самое на пробу,
+ничего не отправляя. Если есть что вливать или нашёлся конфликт, он открывает задачу
+«Mihon upstream update» (GitHub пришлёт письмо). Запустить проверку вручную:
+GitHub → Actions → Re:Lad upstream check → Run workflow.
 
 ## Выпуск версии
 

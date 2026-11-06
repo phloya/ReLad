@@ -1,5 +1,7 @@
-# Re:Lad weekly upstream check: tries merging new Mihon changes (without pushing anything)
-# and opens or updates an issue when there is something to merge or a conflict to resolve.
+# Re:Lad weekly upstream check: test-imports new Mihon versions the same way
+# plus/tools/import-mihon.sh does (one squashed commit on top of the `mihon` branch),
+# tries merging them into main without pushing anything, and opens or updates an issue
+# when there is something to import or a conflict to resolve.
 # The followed Mihon branch is set in plus/upstream.properties.
 name: Re:Lad upstream check
 
@@ -24,36 +26,43 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Probe merges from Mihon
+      - name: Test-import Mihon
         id: probe
         run: |
           set -uo pipefail
           git config user.name "Re:Lad upstream check"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --quiet origin '+refs/heads/mihon:refs/remotes/origin/mihon'
           git remote add upstream https://github.com/mihonapp/mihon.git
-          git fetch --quiet --tags upstream '+refs/heads/*:refs/remotes/upstream/*'
+          git fetch --quiet --no-tags upstream \
+            '+refs/heads/*:refs/remotes/upstream/*' '+refs/tags/*:refs/remotes/upstream/tags/*'
 
           tracked="$(sed -n 's/^trackedBranch=//p' plus/upstream.properties)"
+          imported="$(git log -1 --format='%(trailers:key=Mihon-Commit,valueonly)' origin/mihon | tr -d '[:space:]')"
+          imported_ref="$(git log -1 --format='%(trailers:key=Mihon-Ref,valueonly)' origin/mihon | tr -d '[:space:]')"
           newest_release="$(git branch -r --list 'upstream/*' --format='%(refname:lstrip=3)' \
             | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
           attention=0
 
-          # Prints one report line for merging upstream/$1 into our main; returns 1 on conflicts.
+          # Prints one report line for importing upstream/$1 on top of the mihon branch and
+          # merging it into main; returns 1 on conflicts.
           probe() {
-            local branch="$1" label="$2" behind conflicts
-            behind="$(git rev-list --count "HEAD..upstream/$branch")"
+            local branch="$1" label="$2" target behind import conflicts
+            target="$(git rev-parse "upstream/$branch")"
+            behind="$(git rev-list --count "$imported..$target")"
             if [ "$behind" = 0 ]; then
               echo "- **$label** (\`$branch\`): nothing new"
               return 0
             fi
-            if git merge --no-commit --no-ff --quiet "upstream/$branch" >/dev/null 2>&1; then
-              echo "- **$label** (\`$branch\`): $behind new commits, merges cleanly"
+            import="$(git commit-tree "$target^{tree}" -p origin/mihon -m "Test import of Mihon $branch")"
+            if git merge --no-commit --no-ff --quiet "$import" >/dev/null 2>&1; then
+              echo "- **$label** (\`$branch\`): $behind new Mihon commits, merges cleanly"
               git merge --abort 2>/dev/null || git reset --hard --quiet
               return 0
             fi
             conflicts="$(git diff --name-only --diff-filter=U | sed 's/^/  - `/; s/$/`/')"
             git merge --abort 2>/dev/null || git reset --hard --quiet
-            echo "- **$label** (\`$branch\`): $behind new commits, **conflicts in**:"
+            echo "- **$label** (\`$branch\`): $behind new Mihon commits, **conflicts in**:"
             echo "$conflicts"
             return 1
           }
@@ -62,13 +71,16 @@ jobs:
             echo "## Mihon upstream check — $(date -u +%Y-%m-%d)"
             echo
             echo "Re:Lad follows Mihon \`$tracked\` (plus/upstream.properties)."
+            echo "Last import: **$imported_ref** (\`${imported:0:9}\`)."
             echo
 
-            if [ "$(git rev-list --count "HEAD..upstream/$tracked")" != 0 ]; then attention=1; fi
+            if [ "$(git rev-list --count "$imported..upstream/$tracked")" != 0 ]; then attention=1; fi
             probe "$tracked" "Followed branch" || attention=1
 
-            new_tags="$(git tag --merged "upstream/$tracked" --no-merged HEAD | sort -V | tr '\n' ' ')"
-            if [ -n "$new_tags" ]; then echo "- New Mihon releases to merge: $new_tags"; fi
+            new_tags="$(git for-each-ref --format='%(refname:lstrip=4)' \
+              --merged "upstream/$tracked" --no-merged "$imported" refs/remotes/upstream/tags \
+              | sort -V | tr '\n' ' ')"
+            if [ -n "$new_tags" ]; then echo "- New Mihon releases: $new_tags"; fi
 
             if [ "$tracked" != main ] && [ -n "$newest_release" ] && [ "$newest_release" != "$tracked" ]; then
               attention=1
@@ -78,9 +90,12 @@ jobs:
 
             if [ "$tracked" != main ]; then
               echo
-              echo "Early warning, not merged until Re:Lad switches to Mihon \`main\`:"
+              echo "Early warning, not imported until Re:Lad switches to Mihon \`main\`:"
               probe main "Mihon main" || true
             fi
+
+            echo
+            echo "To import: \`bash plus/tools/import-mihon.sh\` (see plus/README.md)."
           } > report.md
 
           cat report.md >> "$GITHUB_STEP_SUMMARY"

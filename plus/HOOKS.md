@@ -55,6 +55,7 @@ Workflow Mihon `build.yml` (сборка, тесты, стиль кода на �
 | `.github/workflows/relad-upstream-check.yml` | Еженедельная проверка Mihon: пробное слияние, задача (issue) при новинках или конфликтах |
 | `plus/version.properties` | Номер версии Re:Lad |
 | `plus/upstream.properties` | За какой веткой Mihon мы идём |
+| `plus/tools/import-mihon.sh` | Импорт новой версии Mihon одним коммитом в ветку `mihon` и вливание в ветку `sync/…` |
 | `plus/tools/upload-signing-secrets.sh` | Загрузка ключа подписи в секреты GitHub |
 
 ## Отложено (см. PLAN.md, раздел 5)

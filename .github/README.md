@@ -4,7 +4,7 @@
 
 > 🚧 Early development. There are no public builds yet.
 
-Re:Lad is a fork of Mihon, the free and open source manga reader. It stays close to
+Re:Lad is built on Mihon, the free and open source manga reader. It stays close to
 upstream Mihon and adds AI-powered features on top:
 
 - **Panel-by-panel reading:** the app finds panels on a page and zooms into them one by one.
@@ -24,6 +24,9 @@ Re:Lad installs next to Mihon (application ID `app.relad`) and doesn't replace i
 
 Our code lives in [`plus/`](../plus/README.md), separate from Mihon's code.
 Every change to Mihon's files is a small, marked hook listed in [`plus/HOOKS.md`](../plus/HOOKS.md).
+Each Mihon version is imported as a single commit on the `mihon` branch and merged into `main`
+([`plus/tools/import-mihon.sh`](../plus/tools/import-mihon.sh)); Mihon's own history lives in
+[its repository](https://github.com/mihonapp/mihon).
 The roadmap is in [`plus/PLAN.md`](../plus/PLAN.md) (in Russian).
 
 ```bash
