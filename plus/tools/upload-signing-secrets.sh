@@ -45,4 +45,4 @@ printf '%s' "$PASS" | gh secret set RELAD_KEYSTORE_PASSWORD --repo "$REPO"
 
 echo
 echo "Готово. Секреты в $REPO:"
-gh secret list --repo "$REPO"
+GH_PAGER=cat gh secret list --repo "$REPO"
