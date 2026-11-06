@@ -88,13 +88,17 @@ jobs:
           set -euo pipefail
           version="${{ steps.version.outputs.version }}"
           apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          echo "Using $apksigner"
           mkdir dist
           for abi in universal arm64-v8a armeabi-v7a x86 x86_64; do
             src="app/build/outputs/apk/release/app-$abi-release.apk"
             if [ "$abi" = universal ]; then dst="dist/relad-$version.apk"; else dst="dist/relad-$abi-$version.apk"; fi
-            cert="$("$apksigner" verify --print-certs "$src" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+            out="$("$apksigner" verify --print-certs "$src")"
+            # The line format differs between apksigner versions; take the first SHA-256 digest.
+            cert="$(printf '%s\n' "$out" | grep -i -m1 'certificate SHA-256 digest' | awk '{print $NF}' | tr 'A-F' 'a-f')"
             if [ "$cert" != "$RELAD_CERT_SHA256" ]; then
-              echo "::error::$src is signed with an unexpected certificate: $cert"
+              echo "::error::$src: unexpected signing certificate '$cert'"
+              printf '%s\n' "$out"
               exit 1
             fi
             cp "$src" "$dst"
