@@ -46,3 +46,7 @@ include(":presentation-widget")
 include(":source-api")
 include(":source-local")
 include(":telemetry")
+
+// PLUS --> Re:Lad modules live in plus/ (see plus/README.md)
+include(":plus:core")
+// PLUS <--
