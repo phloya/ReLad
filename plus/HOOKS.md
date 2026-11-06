@@ -27,6 +27,18 @@
 | `app/build.gradle.kts` → `dependencies` | `implementation(projects.plus.core)` | Приложение видит код Re:Lad |
 | `.github/FUNDING.yml` | **Удалён** | Кнопка «Sponsor» на GitHub вела на донаты Mihon. Свой файл вернём, когда будут ссылки на донаты Re:Lad |
 
+## M0.6 — автосборки и выпуски
+
+| Файл Mihon | Что изменено | Зачем |
+|---|---|---|
+| `gradle/build-logic/.../mihon/gradle/BuildConfig.kt` → `includeTelemetry` | Телеметрия по умолчанию выключена при любом `-Pdist` | Встроенный `google-services.json` принадлежит проекту Firebase Mihon. Данные Re:Lad туда попадать не должны |
+| `app/build.gradle.kts` → блок `defaultConfig` после `sourceSets` | `versionName` и `versionCode` берутся из `plus/version.properties`. Строки версии Mihon выше не тронуты | Своя нумерация Re:Lad. Повышение версии в Mihon не создаёт конфликтов |
+| Workflow `Update website` (настройка GitHub, файл не менялся) | Отключён в настройках Actions репозитория | При каждом выпуске он стучится в репозиторий сайта Mihon и у нас падает |
+
+Workflow Mihon `build.yml` (сборка, тесты, стиль кода на каждую отправку в `main` и PR)
+работает у нас без изменений. Workflow `release.yml` Mihon запускается только в
+`mihonapp/mihon`, у нас его заменяет `relad-release.yml`.
+
 ## Наши файлы (конфликтов с Mihon не бывает)
 
 | Путь | Что это |
@@ -38,6 +50,11 @@
 | `plus/core/` | Модуль `:plus:core`, пока пустой. Наполняется в M1 |
 | `plus/README.md`, `plus/PLAN.md`, `plus/LICENSES.md` | Описание папки, план проекта, реестр лицензий |
 | `.github/README.md` | Страница Re:Lad на GitHub. GitHub показывает её вместо корневого `README.md` Mihon, который мы не трогаем |
+| `.github/workflows/relad-release.yml` | Выпуск по тегу `vX.Y.Z`: подписанные APK, проверка отпечатка подписи, черновик выпуска |
+| `.github/workflows/relad-upstream-check.yml` | Еженедельная проверка Mihon: пробное слияние, задача (issue) при новинках или конфликтах |
+| `plus/version.properties` | Номер версии Re:Lad |
+| `plus/upstream.properties` | За какой веткой Mihon мы идём |
+| `plus/tools/upload-signing-secrets.sh` | Загрузка ключа подписи в секреты GitHub |
 
 ## Отложено (см. PLAN.md, раздел 5)
 
