@@ -1,0 +1,120 @@
+# Re:Lad release: pushing a tag like v0.1.0 builds signed APKs and creates a DRAFT GitHub release.
+# Review the draft and publish it by hand; the in-app updater only sees published releases.
+#
+# Needs repository secrets (set them with plus/tools/upload-signing-secrets.sh):
+#   RELAD_SIGNING_KEY        base64 of ~/.relad/relad-release.jks
+#   RELAD_KEYSTORE_PASSWORD  password of the key
+name: Re:Lad release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  # SHA-256 of Re:Lad's signing certificate (public; see plus/PLAN.md, step M0.5).
+  RELAD_CERT_SHA256: 5a7894932057d52c3184d798e7b4dd26fbfd8dea1adab9027ff1f66ed676c1f9
+
+jobs:
+  release:
+    name: Build and draft release
+    if: github.repository == 'phloya/ReLad'
+    runs-on: 'ubuntu-26.04'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check tag against plus/version.properties
+        id: version
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          version="$(sed -n 's/^versionName=//p' plus/version.properties)"
+          if [ "$tag" != "v$version" ]; then
+            echo "::error::Tag $tag does not match versionName=$version in plus/version.properties"
+            exit 1
+          fi
+          mihon="$(sed -n 's/^ *versionName = "\(.*\)"$/\1/p' app/build.gradle.kts | head -1)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "mihon=$mihon" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          java-version-file: .github/.java-version
+          distribution: temurin
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-disabled: true
+
+      - name: Decode signing key
+        run: |
+          set -euo pipefail
+          if [ -z "$RELAD_SIGNING_KEY" ]; then
+            echo "::error::Secret RELAD_SIGNING_KEY is not set (run plus/tools/upload-signing-secrets.sh)"
+            exit 1
+          fi
+          echo "$RELAD_SIGNING_KEY" | base64 -d > "$RUNNER_TEMP/relad-release.jks"
+        env:
+          RELAD_SIGNING_KEY: ${{ secrets.RELAD_SIGNING_KEY }}
+
+      - name: Build signed APKs
+        run: ./gradlew assembleRelease -Pdist=github -Pinclude-telemetry=false
+        env:
+          MIHON_GITHUB_RELEASE: 'true'
+          storeFile: ${{ runner.temp }}/relad-release.jks
+          storePassword: ${{ secrets.RELAD_KEYSTORE_PASSWORD }}
+          keyAlias: relad
+          keyPassword: ${{ secrets.RELAD_KEYSTORE_PASSWORD }}
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/relad-release.jks"
+
+      - name: Check signatures and rename APKs
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          mkdir dist
+          for abi in universal arm64-v8a armeabi-v7a x86 x86_64; do
+            src="app/build/outputs/apk/release/app-$abi-release.apk"
+            if [ "$abi" = universal ]; then dst="dist/relad-$tag.apk"; else dst="dist/relad-$abi-$tag.apk"; fi
+            cert="$("$apksigner" verify --print-certs "$src" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+            if [ "$cert" != "$RELAD_CERT_SHA256" ]; then
+              echo "::error::$src is signed with an unexpected certificate: $cert"
+              exit 1
+            fi
+            cp "$src" "$dst"
+          done
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+
+      - name: Create draft release
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          mihon="${{ steps.version.outputs.mihon }}"
+          cat > notes.md <<EOF
+          Re:Lad $tag, based on [Mihon $mihon](https://github.com/mihonapp/mihon/releases/tag/v$mihon).
+
+          ### Which file to download
+          - Most phones: \`relad-arm64-v8a-$tag.apk\`
+          - Not sure: \`relad-$tag.apk\` (works everywhere, larger)
+
+          Re:Lad installs next to Mihon and doesn't replace it.
+
+          Signing certificate SHA-256: \`$RELAD_CERT_SHA256\`
+          EOF
+          gh release create "$tag" dist/* --draft --verify-tag --title "Re:Lad $tag" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
