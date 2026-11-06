@@ -24,8 +24,9 @@ val Project.Config: BuildConfig get() = object : BuildConfig {
         }
         ?: Distribution.LOCAL
 
-    override val includeTelemetry: Boolean = project.flag("include-telemetry")
-        ?: (distribution == Distribution.CI || distribution == Distribution.GITHUB)
+    // PLUS --> Re:Lad never turns telemetry on by default: the bundled Firebase config is Mihon's project.
+    override val includeTelemetry: Boolean = project.flag("include-telemetry") ?: false
+    // PLUS <--
 
     override val uploadCrashlyticsMapping: Boolean = includeTelemetry && (distribution == Distribution.GITHUB)
 
