@@ -33,6 +33,7 @@
 |---|---|---|
 | `gradle/build-logic/.../mihon/gradle/BuildConfig.kt` → `includeTelemetry` | Телеметрия по умолчанию выключена при любом `-Pdist` | Встроенный `google-services.json` принадлежит проекту Firebase Mihon. Данные Re:Lad туда попадать не должны |
 | `app/build.gradle.kts` → блок `defaultConfig` после `sourceSets` | `versionName` и `versionCode` берутся из `plus/version.properties`. Строки версии Mihon выше не тронуты | Своя нумерация Re:Lad. Повышение версии в Mihon не создаёт конфликтов |
+| `app/.../data/updater/AppUpdateChecker.kt` → `RELEASE_TAG` | `v…` → `relad-v…` | Теги Re:Lad — `relad-vX.Y.Z`, потому что `vX.Y.Z` заняты историей Tachiyomi и Mihon. Ссылка «Что нового» ведёт на наш выпуск. Сравнение версий Mihon убирает из тега всё, кроме цифр и точек, так что приставка ему не мешает |
 | Workflow `Update website` (настройка GitHub, файл не менялся) | Отключён в настройках Actions репозитория | При каждом выпуске он стучится в репозиторий сайта Mihon и у нас падает |
 
 Workflow Mihon `build.yml` (сборка, тесты, стиль кода на каждую отправку в `main` и PR)

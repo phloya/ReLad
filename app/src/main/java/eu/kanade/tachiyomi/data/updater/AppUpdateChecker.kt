@@ -46,7 +46,9 @@ val RELEASE_TAG: String by lazy {
     if (isNightlyBuildType) {
         "r${BuildConfig.COMMIT_COUNT}"
     } else {
-        "v${BuildConfig.VERSION_NAME}"
+        // PLUS --> Re:Lad tags are relad-vX.Y.Z: plain vX.Y.Z tags are taken by Tachiyomi/Mihon history
+        "relad-v${BuildConfig.VERSION_NAME}"
+        // PLUS <--
     }
 }
 

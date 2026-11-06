@@ -1,4 +1,5 @@
-# Re:Lad release: pushing a tag like v0.1.0 builds signed APKs and creates a DRAFT GitHub release.
+# Re:Lad release: pushing a tag like relad-v0.1.0 builds signed APKs and creates a DRAFT GitHub release.
+# (Plain vX.Y.Z tags are already used by Tachiyomi/Mihon history, hence the relad- prefix.)
 # Review the draft and publish it by hand; the in-app updater only sees published releases.
 #
 # Needs repository secrets (set them with plus/tools/upload-signing-secrets.sh):
@@ -9,7 +10,7 @@ name: Re:Lad release
 on:
   push:
     tags:
-      - 'v*'
+      - 'relad-v*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -38,12 +39,13 @@ jobs:
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
           version="$(sed -n 's/^versionName=//p' plus/version.properties)"
-          if [ "$tag" != "v$version" ]; then
-            echo "::error::Tag $tag does not match versionName=$version in plus/version.properties"
+          if [ "$tag" != "relad-v$version" ]; then
+            echo "::error::Tag $tag does not match versionName=$version in plus/version.properties (expected relad-v$version)"
             exit 1
           fi
           mihon="$(sed -n 's/^ *versionName = "\(.*\)"$/\1/p' app/build.gradle.kts | head -1)"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=v$version" >> "$GITHUB_OUTPUT"
           echo "mihon=$mihon" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK
@@ -84,12 +86,12 @@ jobs:
       - name: Check signatures and rename APKs
         run: |
           set -euo pipefail
-          tag="${{ steps.version.outputs.tag }}"
+          version="${{ steps.version.outputs.version }}"
           apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
           mkdir dist
           for abi in universal arm64-v8a armeabi-v7a x86 x86_64; do
             src="app/build/outputs/apk/release/app-$abi-release.apk"
-            if [ "$abi" = universal ]; then dst="dist/relad-$tag.apk"; else dst="dist/relad-$abi-$tag.apk"; fi
+            if [ "$abi" = universal ]; then dst="dist/relad-$version.apk"; else dst="dist/relad-$abi-$version.apk"; fi
             cert="$("$apksigner" verify --print-certs "$src" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
             if [ "$cert" != "$RELAD_CERT_SHA256" ]; then
               echo "::error::$src is signed with an unexpected certificate: $cert"
@@ -103,18 +105,19 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ steps.version.outputs.tag }}"
+          version="${{ steps.version.outputs.version }}"
           mihon="${{ steps.version.outputs.mihon }}"
           cat > notes.md <<EOF
-          Re:Lad $tag, based on [Mihon $mihon](https://github.com/mihonapp/mihon/releases/tag/v$mihon).
+          Re:Lad $version, based on [Mihon $mihon](https://github.com/mihonapp/mihon/releases/tag/v$mihon).
 
           ### Which file to download
-          - Most phones: \`relad-arm64-v8a-$tag.apk\`
-          - Not sure: \`relad-$tag.apk\` (works everywhere, larger)
+          - Most phones: \`relad-arm64-v8a-$version.apk\`
+          - Not sure: \`relad-$version.apk\` (works everywhere, larger)
 
           Re:Lad installs next to Mihon and doesn't replace it.
 
           Signing certificate SHA-256: \`$RELAD_CERT_SHA256\`
           EOF
-          gh release create "$tag" dist/* --draft --verify-tag --title "Re:Lad $tag" --notes-file notes.md
+          gh release create "$tag" dist/* --draft --verify-tag --title "Re:Lad $version" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}

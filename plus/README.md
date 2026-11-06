@@ -47,9 +47,10 @@ GitHub → Actions → Re:Lad upstream check → Run workflow.
 ## Выпуск версии
 
 1. Повысить `versionName` в `plus/version.properties` (например, `0.2.0`) и закоммитить.
-2. Поставить тег с тем же номером и отправить его:
+2. Поставить тег с тем же номером и приставкой `relad-` и отправить его
+   (теги вида `vX.Y.Z` заняты историей Tachiyomi и Mihon):
    ```bash
-   git tag v0.2.0 && git push origin v0.2.0
+   git tag -a relad-v0.2.0 -m "Re:Lad v0.2.0" && git push origin relad-v0.2.0
    ```
 3. Workflow **Re:Lad release** соберёт и подпишет APK, проверит отпечаток подписи
    и создаст **черновик** выпуска на GitHub с описанием и контрольными суммами.
