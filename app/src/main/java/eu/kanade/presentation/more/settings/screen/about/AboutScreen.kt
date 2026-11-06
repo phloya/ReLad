@@ -30,6 +30,7 @@ import eu.kanade.presentation.util.LocalBackPress
 import eu.kanade.presentation.util.Screen
 import eu.kanade.presentation.util.rememberIs24HourSystem
 import eu.kanade.tachiyomi.BuildConfig
+import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.updater.RELEASE_URL
 import eu.kanade.tachiyomi.ui.more.NewUpdateScreen
 import eu.kanade.tachiyomi.util.lang.toDateTimestampString
@@ -45,15 +46,8 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import logcat.LogPriority
 import mihon.app.di.appGraph
-import mihon.icons.materialsymbols.MaterialSymbols
-import mihon.icons.materialsymbols.rounded.Public
-import mihon.icons.simpleicons.Discord
-import mihon.icons.simpleicons.Facebook
 import mihon.icons.simpleicons.Github
-import mihon.icons.simpleicons.Reddit
 import mihon.icons.simpleicons.SimpleIcons
-import mihon.icons.simpleicons.X
-import tachiyomi.core.common.Constants
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.release.interactor.GetApplicationRelease
 import tachiyomi.i18n.MR
@@ -64,6 +58,7 @@ import tachiyomi.presentation.core.i18n.stringResource
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.Locale
+import androidx.compose.ui.res.stringResource as androidStringResource
 import kotlin.time.Instant
 
 object AboutScreen : Screen() {
@@ -165,10 +160,13 @@ object AboutScreen : Screen() {
                     )
                 }
 
+                // PLUS --> Mihon's privacy policy and social links don't apply to Re:Lad.
+                // Credit Mihon as the base project and link Re:Lad's own repository instead.
                 item {
                     TextPreferenceWidget(
-                        title = stringResource(MR.strings.privacy_policy),
-                        onPreferenceClick = { uriHandler.openUri("https://mihon.app/privacy/") },
+                        title = androidStringResource(R.string.plus_based_on_mihon),
+                        subtitle = androidStringResource(R.string.plus_based_on_mihon_summary),
+                        onPreferenceClick = { uriHandler.openUri("https://github.com/mihonapp/mihon") },
                     )
                 }
 
@@ -180,37 +178,13 @@ object AboutScreen : Screen() {
                         horizontalArrangement = Arrangement.Center,
                     ) {
                         LinkIcon(
-                            label = stringResource(MR.strings.website),
-                            icon = MaterialSymbols.Rounded.Public,
-                            url = "https://mihon.app",
-                        )
-                        LinkIcon(
-                            label = "Discord",
-                            icon = SimpleIcons.Discord,
-                            url = Constants.URL_DISCORD,
-                        )
-                        LinkIcon(
-                            label = "X",
-                            icon = SimpleIcons.X,
-                            url = "https://x.com/mihonapp",
-                        )
-                        LinkIcon(
-                            label = "Facebook",
-                            icon = SimpleIcons.Facebook,
-                            url = "https://facebook.com/mihonapp",
-                        )
-                        LinkIcon(
-                            label = "Reddit",
-                            icon = SimpleIcons.Reddit,
-                            url = "https://www.reddit.com/r/mihonapp",
-                        )
-                        LinkIcon(
                             label = "GitHub",
                             icon = SimpleIcons.Github,
-                            url = "https://github.com/mihonapp",
+                            url = "https://github.com/phloya/ReLad",
                         )
                     }
                 }
+                // PLUS <--
             }
         }
     }
