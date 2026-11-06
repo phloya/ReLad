@@ -19,6 +19,14 @@
 | `app/.../ui/main/MainActivity.kt` | Отключён вызов `ShowDonationCampaign()` | Окно Mihon просит задонатить разработчику Mihon |
 | `app/.../settings/screen/about/AboutScreen.kt` | Убраны политика конфиденциальности и соцсети Mihon. Добавлены «Основано на Mihon» и ссылка на GitHub Re:Lad | Указываем основу (Apache-2.0), не выдаём ссылки Mihon за свои |
 
+## M0.4 — каркас `plus/`
+
+| Файл Mihon | Что изменено | Зачем |
+|---|---|---|
+| `settings.gradle.kts` | `include(":plus:core")` в конце списка модулей | Подключение модулей Re:Lad. Новые модули `plus:*` добавляются сюда же |
+| `app/build.gradle.kts` → `dependencies` | `implementation(projects.plus.core)` | Приложение видит код Re:Lad |
+| `.github/FUNDING.yml` | **Удалён** | Кнопка «Sponsor» на GitHub вела на донаты Mihon. Свой файл вернём, когда будут ссылки на донаты Re:Lad |
+
 ## Наши файлы (конфликтов с Mihon не бывает)
 
 | Путь | Что это |
@@ -27,6 +35,9 @@
 | `plus/app-res/release/` | Название «Re:Lad» и фон иконки для выпусков |
 | `plus/app-res/dev/` | Название «Re:Lad Dev» и тёмный фон иконки для отладочных сборок |
 | `app/src/main/java/plus/app/donate/PlusDonateScreen.kt` | Экран донатов Re:Lad. Ссылки задаются в `PlusDonations.links`; пока список пуст, пункт меню скрыт |
+| `plus/core/` | Модуль `:plus:core`, пока пустой. Наполняется в M1 |
+| `plus/README.md`, `plus/PLAN.md`, `plus/LICENSES.md` | Описание папки, план проекта, реестр лицензий |
+| `.github/README.md` | Страница Re:Lad на GitHub. GitHub показывает её вместо корневого `README.md` Mihon, который мы не трогаем |
 
 ## Отложено (см. PLAN.md, раздел 5)
 
