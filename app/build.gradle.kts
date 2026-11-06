@@ -139,6 +139,18 @@ android {
         // PLUS <--
     }
 
+    // PLUS --> Re:Lad's own version from plus/version.properties replaces Mihon's (kept above, untouched)
+    defaultConfig {
+        val plusVersionName = Properties().apply {
+            FileInputStream(layout.settingsDirectory.file("plus/version.properties").asFile).use { load(it) }
+        }.getProperty("versionName")
+        val (major, minor, patch) = plusVersionName.split(".").map { it.toInt() }
+        require(minor < 100 && patch < 100) { "plus/version.properties: minor and patch must be below 100" }
+        versionName = plusVersionName
+        versionCode = major * 10_000 + minor * 100 + patch
+    }
+    // PLUS <--
+
     splits {
         abi {
             isEnable = true
