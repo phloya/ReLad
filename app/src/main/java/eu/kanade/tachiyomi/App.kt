@@ -214,18 +214,21 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
 
     private fun initializeMigrator() {
         val preference = preferenceStore.getInt(Preference.appStateKey("last_version_code"), 0)
+        // PLUS --> Mihon's migrations are numbered by Mihon's versionCode, not Re:Lad's (was BuildConfig.VERSION_CODE)
         logcat {
-            "Migration from ${preference.get()} to ${BuildConfig.VERSION_CODE} with ${migrations.size} migration(s)"
+            "Migration from ${preference.get()} to ${BuildConfig.MIHON_VERSION_CODE} " +
+                "with ${migrations.size} migration(s)"
         }
         Migrator.initialize(
             old = preference.get(),
-            new = BuildConfig.VERSION_CODE,
+            new = BuildConfig.MIHON_VERSION_CODE,
             migrations = migrations.toList(),
             onMigrationComplete = {
-                logcat { "Updating last version to ${BuildConfig.VERSION_CODE}" }
-                preference.set(BuildConfig.VERSION_CODE)
+                logcat { "Updating last version to ${BuildConfig.MIHON_VERSION_CODE}" }
+                preference.set(BuildConfig.MIHON_VERSION_CODE)
             },
         )
+        // PLUS <--
     }
 
     override fun newImageLoader(context: Context): ImageLoader {

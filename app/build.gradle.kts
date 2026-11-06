@@ -146,6 +146,8 @@ android {
         }.getProperty("versionName")
         val (major, minor, patch) = plusVersionName.split(".").map { it.toInt() }
         require(minor < 100 && patch < 100) { "plus/version.properties: minor and patch must be below 100" }
+        // Mihon's settings migrations are numbered by Mihon's versionCode, so App.kt keeps counting with it
+        buildConfigField("int", "MIHON_VERSION_CODE", "${requireNotNull(versionCode)}")
         versionName = plusVersionName
         versionCode = major * 10_000 + minor * 100 + patch
     }

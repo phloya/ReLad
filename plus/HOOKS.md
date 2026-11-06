@@ -33,6 +33,8 @@
 |---|---|---|
 | `gradle/build-logic/.../mihon/gradle/BuildConfig.kt` → `includeTelemetry` | Телеметрия по умолчанию выключена при любом `-Pdist` | Встроенный `google-services.json` принадлежит проекту Firebase Mihon. Данные Re:Lad туда попадать не должны |
 | `app/build.gradle.kts` → блок `defaultConfig` после `sourceSets` | `versionName` и `versionCode` берутся из `plus/version.properties`. Строки версии Mihon выше не тронуты | Своя нумерация Re:Lad. Повышение версии в Mihon не создаёт конфликтов |
+| `app/build.gradle.kts` → тот же блок версии | Поле `BuildConfig.MIHON_VERSION_CODE` — номер версии Mihon из его строки `versionCode` | Номер Mihon нужен миграциям настроек (см. следующую строку) |
+| `app/.../tachiyomi/App.kt` → `initializeMigrator()` | Вместо `BuildConfig.VERSION_CODE` используется `BuildConfig.MIHON_VERSION_CODE` | Миграции настроек Mihon помечены номерами версий Mihon (34, 39…) и запускаются, когда номер растёт. С нашим номером (0.1.0 = 100) будущие миграции Mihon (40, 41…) у пользователей Re:Lad никогда бы не запустились. Свои миграции Re:Lad будут в `plus:core` со своим счётчиком |
 | `app/.../data/updater/AppUpdateChecker.kt` → `RELEASE_TAG` | `v…` → `relad-v…` | Теги Re:Lad — `relad-vX.Y.Z`, потому что `vX.Y.Z` заняты историей Tachiyomi и Mihon. Ссылка «Что нового» ведёт на наш выпуск. Сравнение версий Mihon убирает из тега всё, кроме цифр и точек, так что приставка ему не мешает |
 | Workflow `Update website` (настройка GitHub, файл не менялся) | Отключён в настройках Actions репозитория | При каждом выпуске он стучится в репозиторий сайта Mihon и у нас падает |
 
@@ -51,7 +53,7 @@ Workflow Mihon `build.yml` (сборка, тесты, стиль кода на �
 | `plus/core/` | Модуль `:plus:core`, пока пустой. Наполняется в M1 |
 | `plus/README.md`, `plus/PLAN.md`, `plus/LICENSES.md` | Описание папки, план проекта, реестр лицензий |
 | `.github/README.md` | Страница Re:Lad на GitHub. GitHub показывает её вместо корневого `README.md` Mihon, который мы не трогаем |
-| `.github/workflows/relad-release.yml` | Выпуск по тегу `vX.Y.Z`: подписанные APK, проверка отпечатка подписи, черновик выпуска |
+| `.github/workflows/relad-release.yml` | Выпуск по тегу `relad-vX.Y.Z`: подписанные APK, проверка отпечатка подписи, черновик выпуска |
 | `.github/workflows/relad-upstream-check.yml` | Еженедельная проверка Mihon: пробное слияние, задача (issue) при новинках или конфликтах |
 | `plus/version.properties` | Номер версии Re:Lad |
 | `plus/upstream.properties` | За какой веткой Mihon мы идём |
