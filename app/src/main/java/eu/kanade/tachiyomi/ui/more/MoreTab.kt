@@ -35,7 +35,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-import mihon.feature.support.SupportUsScreen
+import plus.app.donate.PlusDonateScreen
+import plus.app.donate.PlusDonations
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 
@@ -74,7 +75,13 @@ data object MoreTab : Tab {
             onClickStats = { navigator.push(StatsScreen()) },
             onClickDataAndStorage = { navigator.push(SettingsScreen(SettingsScreen.Destination.DataAndStorage)) },
             onClickSettings = { navigator.push(SettingsScreen()) },
-            onClickSupport = { navigator.push(SupportUsScreen()) },
+            // PLUS --> Re:Lad's own donation screen instead of Mihon's; hidden while there are no links
+            onClickSupport = if (PlusDonations.isAvailable) {
+                { navigator.push(PlusDonateScreen()) }
+            } else {
+                null
+            },
+            // PLUS <--
             onClickAbout = { navigator.push(SettingsScreen(SettingsScreen.Destination.About)) },
         )
     }

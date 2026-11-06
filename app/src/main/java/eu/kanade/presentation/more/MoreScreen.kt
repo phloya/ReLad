@@ -38,7 +38,9 @@ fun MoreScreen(
     onClickStats: () -> Unit,
     onClickDataAndStorage: () -> Unit,
     onClickSettings: () -> Unit,
-    onClickSupport: () -> Unit,
+    // PLUS --> null hides the "Support us" entry (Re:Lad has no donation links yet)
+    onClickSupport: (() -> Unit)?,
+    // PLUS <--
     onClickAbout: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
@@ -131,13 +133,17 @@ fun MoreScreen(
                     onPreferenceClick = onClickSettings,
                 )
             }
-            item {
-                TextPreferenceWidget(
-                    title = stringResource(MR.strings.label_support_us),
-                    icon = MaterialSymbols.RoundedFilled.VolunteerActivism,
-                    onPreferenceClick = onClickSupport,
-                )
+            // PLUS --> shown only when a donation screen is available
+            if (onClickSupport != null) {
+                item {
+                    TextPreferenceWidget(
+                        title = stringResource(MR.strings.label_support_us),
+                        icon = MaterialSymbols.RoundedFilled.VolunteerActivism,
+                        onPreferenceClick = onClickSupport,
+                    )
+                }
             }
+            // PLUS <--
             item {
                 TextPreferenceWidget(
                     title = stringResource(MR.strings.pref_category_about),

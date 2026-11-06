@@ -312,7 +312,9 @@ class MainActivity : BaseActivity() {
                 if (!isBenchmarkBuildType) {
                     if (isLaunch) CheckForUpdates()
                     ShowOnboarding()
-                    ShowDonationCampaign()
+                    // PLUS --> Mihon's donation campaign asks users to fund Mihon's developer; Re:Lad does not show it
+                    // ShowDonationCampaign()
+                    // PLUS <--
                 }
             }
         }
