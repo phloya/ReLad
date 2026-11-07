@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="plus_translate_language">Переводить на</string>
+    <string name="plus_translate_sfx">Переводить звуковые эффекты</string>
+    <string name="plus_translate_sfx_summary">Перевод рисуется поверх эффекта, рисунок не трогается</string>
+    <string name="plus_translate_no_providers">Сначала добавьте ИИ-провайдера</string>
+    <string name="plus_translate_how">Каждая страница — один запрос к ИИ-провайдеру: он находит текст и переводит его. Нужна модель, которая понимает картинки (например, Gemini Flash, модели уровня GPT-4o, Claude). Переведённые страницы сохраняются, повторное чтение бесплатно.</string>
+</resources>
