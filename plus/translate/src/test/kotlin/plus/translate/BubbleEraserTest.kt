@@ -147,7 +147,42 @@ class BubbleEraserTest {
     }
 
     @Test
-    fun `light letters on dark art are left for a label`() {
+    fun `a bubble cut by the page edge counts as closed`() {
+        val page = Page()
+        page.bubble(cx = 20, cy = 100, rx = 70, ry = 45) // its left part is off the page
+        page.rect(20, 95, 60, 99, black)
+
+        val result = BubbleEraser.erase(page.pixels, page.width, page.height, Box(15, 90, 65, 104), Box(0, 0, 200, 200))
+
+        result.enclosed shouldBe true
+        result.rows.shouldNotBeNull()
+        page[40, 97] shouldBe white
+    }
+
+    @Test
+    fun `light bits of the art at the box's edge are not taken for the bubble`() {
+        val page = Page()
+        page.bubble(cx = 100, cy = 100, rx = 50, ry = 35)
+        page.rect(85, 95, 115, 99, black)
+        // A white bit of art just left of the bubble, inside the model's too-wide box
+        page.rect(30, 92, 46, 106, white)
+
+        val result = BubbleEraser.erase(
+            page.pixels,
+            page.width,
+            page.height,
+            Box(30, 88, 130, 110),
+            Box(0, 0, 200, 200),
+        )
+
+        val erased = result.erased.shouldNotBeNull()
+        (erased.left > 46) shouldBe true
+        page[38, 100] shouldBe white
+        page[20, 100] shouldBe gray
+    }
+
+    @Test
+    fun `light letters on dark art are left for the art cleaner`() {
         val page = Page()
         page.rect(0, 0, 200, 200, 0xFF303030.toInt())
         page.rect(60, 90, 64, 110, white)

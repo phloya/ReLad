@@ -35,13 +35,58 @@ object BubbleEraser {
         val rows: IntArray? = null,
         /** Most of the text box is dark: light letters on dark art, no bubble around them. */
         val onArt: Boolean = false,
+        /**
+         * Where the translation may go, row by row: the whole interior of a closed bubble; for an
+         * open one, its light area near the original letters (no art there to cover).
+         */
+        val room: Room? = null,
+        /** Share of the text box inside the light area's rows: a bubble's text box is almost all inside. */
+        val coverage: Float = 0f,
+        /**
+         * Share of the light area's rows that is light: a bubble is light but for its letters;
+         * a light patch of hatched art between its lines is not.
+         */
+        val fill: Float = 0f,
+        /** Where [paint] will paint the background, in page pixels; `null`: nothing to paint. */
+        internal val paintArea: Box? = null,
+        internal val area: Box? = null,
+        internal val first: IntArray? = null,
+        internal val last: IntArray? = null,
     )
 
+    /** Finds and erases in one go: [analyze], then [paint]. */
+    fun erase(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        textBox: Box,
+        searchBox: Box,
+        paintBox: Box = textBox.expanded(PAINT_MARGIN, width, height),
+    ): Result = analyze(pixels, width, height, textBox, searchBox, paintBox).also { paint(pixels, width, it) }
+
+    /** Paints the background over the letters [analyze] found. */
+    fun paint(pixels: IntArray, width: Int, result: Result) {
+        val paint = result.paintArea ?: return
+        val area = result.area ?: return
+        val first = result.first ?: return
+        val last = result.last ?: return
+        for (y in first.indices) {
+            if (first[y] < 0) continue
+            val pageY = area.top + y
+            if (pageY < paint.top || pageY >= paint.bottom) continue
+            val row = pageY * width + area.left
+            val from = maxOf(first[y], paint.left - area.left)
+            val to = minOf(last[y], paint.right - area.left - 1)
+            for (x in from..to) pixels[row + x] = result.background
+        }
+    }
+
     /**
-     * Erases the text in [textBox] from [pixels] (ARGB, row by row, [width] × [height]) in place.
+     * Finds the bubble around the text in [textBox] in [pixels] (ARGB, row by row, [width] × [height])
+     * without changing them: everything is measured on the original page before anything is erased.
      * [searchBox] limits how far the bubble interior may extend.
      */
-    fun erase(
+    fun analyze(
         pixels: IntArray,
         width: Int,
         height: Int,
@@ -66,41 +111,55 @@ object BubbleEraser {
             }
         }
 
-        // Seeds: light pixels inside the text box
-        val filled = BooleanArray(light.size)
+        // Light areas reached from the text box, each its own component (4-connected). The bubble
+        // is the one with most of the box in it: light bits of the art at the box's edge are not
+        val boxTop = (textBox.top - area.top).coerceAtLeast(0)
+        val boxBottom = (textBox.bottom - area.top).coerceAtMost(areaHeight)
+        val boxLeft = (textBox.left - area.left).coerceAtLeast(0)
+        val boxRight = (textBox.right - area.left).coerceAtMost(areaWidth)
+        val label = IntArray(light.size)
         val stack = IntArrayStack()
-        for (y in (textBox.top - area.top).coerceAtLeast(
-            0,
-        ) until (textBox.bottom - area.top).coerceAtMost(areaHeight)) {
-            for (x in (textBox.left - area.left).coerceAtLeast(0) until
-                (textBox.right - area.left).coerceAtMost(areaWidth)) {
-                val i = y * areaWidth + x
-                if (light[i] && !filled[i]) {
-                    filled[i] = true
-                    stack.push(i)
+        var labels = 0
+        var best = 0
+        var bestInBox = 0
+        for (sy in boxTop until boxBottom) {
+            for (sx in boxLeft until boxRight) {
+                val seed = sy * areaWidth + sx
+                if (!light[seed] || label[seed] != 0) continue
+                val id = ++labels
+                label[seed] = id
+                stack.push(seed)
+                var inBox = 0
+                while (stack.isNotEmpty()) {
+                    val i = stack.pop()
+                    val x = i % areaWidth
+                    val y = i / areaWidth
+                    if (y in boxTop until boxBottom && x in boxLeft until boxRight) inBox++
+                    if (x > 0) stack.pushIf(i - 1, light, label, id)
+                    if (x < areaWidth - 1) stack.pushIf(i + 1, light, label, id)
+                    if (y > 0) stack.pushIf(i - areaWidth, light, label, id)
+                    if (y < areaHeight - 1) stack.pushIf(i + areaWidth, light, label, id)
+                }
+                if (inBox > bestInBox) {
+                    best = id
+                    bestInBox = inBox
                 }
             }
         }
-        if (stack.isEmpty()) return Result(null, WHITE)
+        if (best == 0) return Result(null, WHITE)
+        val filled = BooleanArray(light.size) { label[it] == best }
 
-        // Flood fill the light component, 4-connected
         var sumR = 0L
         var sumG = 0L
         var sumB = 0L
         var count = 0L
-        while (stack.isNotEmpty()) {
-            val i = stack.pop()
-            val x = i % areaWidth
-            val y = i / areaWidth
-            val color = pixels[(area.top + y) * width + area.left + x]
+        for (i in filled.indices) {
+            if (!filled[i]) continue
+            val color = pixels[(area.top + i / areaWidth) * width + area.left + i % areaWidth]
             sumR += (color shr 16) and 0xFF
             sumG += (color shr 8) and 0xFF
             sumB += color and 0xFF
             count++
-            if (x > 0) stack.pushIf(i - 1, light, filled)
-            if (x < areaWidth - 1) stack.pushIf(i + 1, light, filled)
-            if (y > 0) stack.pushIf(i - areaWidth, light, filled)
-            if (y < areaHeight - 1) stack.pushIf(i + areaWidth, light, filled)
         }
         val background = (0xFF shl 24) or
             ((sumR / count).toInt() shl 16) or
@@ -128,7 +187,18 @@ object BubbleEraser {
             maxY = maxOf(maxY, y)
         }
         val erased = Box(area.left + minX, area.top + minY, area.left + maxX + 1, area.top + maxY + 1)
-        val enclosed = minX > 0 && minY > 0 && maxX < areaWidth - 1 && maxY < areaHeight - 1
+        // Ran into the search limit somewhere. The page edge is not a limit: a bubble cut by the page
+        // edge (as the letterer left it) is closed by it
+        val hitsLimit = (minX == 0 && area.left > 0) || (minY == 0 && area.top > 0) ||
+            (maxX == areaWidth - 1 && area.right < width) || (maxY == areaHeight - 1 && area.bottom < height)
+        // ...but light up to three page edges is the page's own white, not a bubble
+        val pageEdges = listOf(
+            minX == 0 && area.left == 0,
+            minY == 0 && area.top == 0,
+            maxX == areaWidth - 1 && area.right == width,
+            maxY == areaHeight - 1 && area.bottom == height,
+        ).count { it }
+        val enclosed = !hitsLimit && pageEdges < 3
 
         // Light letters on dark art (title pages, narration over a scene): no bubble to erase
         val textArea = (textBox.width.toLong() * textBox.height).coerceAtLeast(1)
@@ -139,37 +209,64 @@ object BubbleEraser {
         // A closed bubble is erased whole: the model's box is rough and may miss a line of the text.
         // Not too big for the text, though: a light area that size is more likely art than a bubble.
         val whole = enclosed && count <= textArea * MAX_BUBBLE_TO_TEXT
+        // Open bubble or white page: only where the letters are, so no white spills onto the art.
+        // Letters are looked for a little around the model's rough box: it often misses some
+        val ink = if (whole) {
+            null
+        } else {
+            inkBox(
+                pixels,
+                width,
+                area,
+                textBox.expanded(INK_SEARCH, width, height),
+                first,
+                last,
+            )
+        }
         val paint = if (whole) {
             Box(area.left, area.top, area.right, area.bottom)
         } else {
-            // Open bubble or white page: only where the letters are, so no white spills onto the art
-            // Letters are looked for a little around the model's rough box: it often misses some
-            inkBox(pixels, width, area, textBox.expanded(INK_SEARCH, width, height), first, last)
-                ?.expanded(INK_MARGIN, width, height)
-                ?.let { ink -> intersect(ink, paintBox) } ?: paintBox
-        }
-        for (y in 0 until areaHeight) {
-            if (first[y] < 0) continue
-            val pageY = area.top + y
-            if (pageY < paint.top || pageY >= paint.bottom) continue
-            val row = pageY * width + area.left
-            val from = maxOf(first[y], paint.left - area.left)
-            val to = minOf(last[y], paint.right - area.left - 1)
-            for (x in from..to) pixels[row + x] = background
+            ink?.expanded(INK_MARGIN, width, height)?.let { intersect(it, paintBox) } ?: paintBox
         }
 
-        val rows = if (whole) {
-            IntArray((maxY - minY + 1) * 2) { i ->
-                val y = minY + i / 2
-                val x = if (i % 2 == 0) first[y] else last[y]
-                if (x < 0) -1 else area.left + x
-            }
-        } else {
-            null
+        val spans = IntArray((maxY - minY + 1) * 2) { i ->
+            val y = minY + i / 2
+            val x = if (i % 2 == 0) first[y] else last[y]
+            if (x < 0) -1 else area.left + x
         }
+        val component = Room.ofRows(area.top + minY, spans)
+        // An open bubble's light area may run on into the art: text stays near the original letters
+        val room = if (whole) component else component.within((ink ?: paint).expanded(OPEN_ROOM, width, height))
+
+        var covered = 0L
+        for (y in maxOf(textBox.top, area.top + minY) until minOf(textBox.bottom, area.top + maxY + 1)) {
+            val row = y - area.top
+            if (first[row] < 0) continue
+            val from = maxOf(textBox.left, area.left + first[row])
+            val to = minOf(textBox.right, area.left + last[row] + 1)
+            if (to > from) covered += to - from
+        }
+        val coverage = covered.toFloat() / textArea
+        var spanned = 0L
+        for (y in 0 until areaHeight) if (first[y] >= 0) spanned += last[y] - first[y] + 1
+        val fill = count.toFloat() / spanned.coerceAtLeast(1)
+
+        val rows = if (whole) spans else null
         // An open bubble's light area may run on into the art: the text goes only where we painted
         val forText = if (whole) erased else intersect(paint, erased) ?: erased
-        return Result(forText, background, enclosed, rows)
+        return Result(
+            forText,
+            background,
+            enclosed,
+            rows,
+            room = room,
+            coverage = coverage,
+            fill = fill,
+            paintArea = paint,
+            area = area,
+            first = first,
+            last = last,
+        )
     }
 
     /** Light pixels of [box] inside the search [area]. */
@@ -228,6 +325,9 @@ object BubbleEraser {
     /** Around the letters found, as a share of their box's size. */
     private const val INK_MARGIN = 0.12f
 
+    /** In an open bubble, text may take this much more room around the original letters (share of their size). */
+    private const val OPEN_ROOM = 0.35f
+
     /** A text box with less light than this (share) and no bubble around is light text on dark art. */
     private const val MIN_LIGHT_SHARE = 0.45
 
@@ -245,9 +345,9 @@ object BubbleEraser {
             data[size++] = value
         }
 
-        fun pushIf(i: Int, light: BooleanArray, filled: BooleanArray) {
-            if (light[i] && !filled[i]) {
-                filled[i] = true
+        fun pushIf(i: Int, light: BooleanArray, label: IntArray, id: Int) {
+            if (light[i] && label[i] == 0) {
+                label[i] = id
                 push(i)
             }
         }
