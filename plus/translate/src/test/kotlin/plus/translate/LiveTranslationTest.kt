@@ -5,10 +5,13 @@ import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
+import plus.core.ai.AiClient
 import plus.core.ai.AiClients
 import plus.core.ai.AiImage
 import plus.core.ai.AiProviderConfig
 import plus.core.ai.AiProviderType
+import plus.core.ai.AiRequest
+import plus.core.ai.AiResponse
 import plus.core.pipeline.PageContext
 import plus.translate.bible.BibleStore
 import java.io.File
@@ -55,7 +58,16 @@ class LiveTranslationTest {
             baseUrl = AiProviderType.Anthropic.defaultBaseUrl,
             model = model,
         )
-        val client = AiClients.create(provider, keyFile.readText().trim(), http)
+        val real = AiClients.create(provider, keyFile.readText().trim(), http)
+        var current = "start"
+        var call = 0
+        // Keeps every raw answer next to the page, to see what the parser made of it
+        val client = object : AiClient {
+            override suspend fun send(request: AiRequest): AiResponse = real.send(request).also { response ->
+                File(out, "raw").mkdirs()
+                File(out, "raw/$current-${call++}.txt").writeText(response.text.orEmpty())
+            }
+        }
         val bibles = BibleStore(File(out, "bible"))
         val translator = PageTextTranslator(bibles)
         val summary = StringBuilder()
@@ -72,10 +84,12 @@ class LiveTranslationTest {
                 val bytes = file.readBytes()
                 val image = ImageIO.read(file)
                 val mime = if (file.extension.lowercase() == "png") "image/png" else "image/jpeg"
+                current = "${dir.name}-${file.nameWithoutExtension}"
+                call = 0
                 val started = System.currentTimeMillis()
                 val result = translator.translate(
                     client = client,
-                    image = AiImage(bytes, mime),
+                    image = PageTextTranslator.ModelImage(AiImage(bytes, mime), image.width, image.height),
                     width = image.width,
                     height = image.height,
                     context = PageContext(
@@ -88,6 +102,7 @@ class LiveTranslationTest {
                     ),
                     language = language,
                     translateSoundEffects = true,
+                    units = BoxUnits.Pixels,
                 )
                 val seconds = (System.currentTimeMillis() - started) / 1000.0
                 val name = "${dir.name}-${file.nameWithoutExtension}"

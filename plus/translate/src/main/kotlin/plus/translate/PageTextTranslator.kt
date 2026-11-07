@@ -22,18 +22,26 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
 
     class Result(val regions: List<TextRegion>, val usage: PageUsage?, val fixedLines: Int)
 
+    /** The image as the model gets it, with its size (smaller than the page when scaled down). */
+    class ModelImage(val image: AiImage, val width: Int, val height: Int)
+
+    /**
+     * [width] × [height] is the page; boxes come back in its pixels. [units]: how the model is asked
+     * for coordinates (Claude: pixels, others: 0–1000).
+     */
     suspend fun translate(
         client: AiClient,
-        image: AiImage,
+        image: ModelImage,
         width: Int,
         height: Int,
         context: PageContext,
         language: TargetLanguage,
         translateSoundEffects: Boolean,
+        units: BoxUnits = BoxUnits.PerMille,
     ): Result {
         ChapterMemory.started(context.chapterId, context.pageIndex)
         try {
-            return run(client, image, width, height, context, language, translateSoundEffects)
+            return run(client, image, width, height, context, language, translateSoundEffects, units)
         } finally {
             ChapterMemory.finished(context.chapterId, context.pageIndex)
         }
@@ -41,17 +49,18 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
 
     private suspend fun run(
         client: AiClient,
-        image: AiImage,
+        image: ModelImage,
         width: Int,
         height: Int,
         context: PageContext,
         language: TargetLanguage,
         translateSoundEffects: Boolean,
+        units: BoxUnits,
     ): Result {
         val bible = bibles.get(context.mangaId, context.mangaTitle, language.code, context.sourceLanguage)
             .withAbout(context)
         val previous = ChapterMemory.previous(context.chapterId, context.pageIndex)
-        val rules = TranslationPrompt.rules(language, context.sourceLanguage, translateSoundEffects)
+        val rules = TranslationPrompt.rules(language, context.sourceLanguage, translateSoundEffects, units)
         val notes = TranslationPrompt.titleNotes(bible, context.chapterId)
         val usage = mutableListOf<AiUsage>()
 
@@ -65,8 +74,9 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
                     context.chapterName,
                     context.pageIndex,
                     previous,
+                    imageSize = if (units == BoxUnits.Pixels) image.width to image.height else null,
                 ),
-                images = listOf(image),
+                images = listOf(image.image),
                 jsonOutput = true,
                 // A page is careful writing, not a puzzle: deep hidden reasoning only adds cost
                 effort = AiEffort.Low,
@@ -74,7 +84,7 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
         )
         response.usage?.let(usage::add)
         val answer = response.text ?: throw AiException("The model sent no text", AiException.Kind.BadResponse)
-        val page = TranslationParser.parsePage(answer, width, height)
+        val page = TranslationParser.parsePage(answer, width, height, units, image.width, image.height)
         var regions = page.regions.filter { translateSoundEffects || it.type.erasesOriginal }
 
         // Free checks on the phone; only flagged lines go back for a second look, as text

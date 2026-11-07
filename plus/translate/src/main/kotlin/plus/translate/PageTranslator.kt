@@ -6,6 +6,7 @@ import kotlinx.serialization.json.Json
 import plus.core.ai.AiClient
 import plus.core.ai.AiImage
 import plus.core.ai.AiProviderConfig
+import plus.core.ai.AiProviderType
 import plus.core.image.PageBitmaps
 import plus.core.pipeline.PageContext
 import plus.core.pipeline.PageProcessor
@@ -64,6 +65,8 @@ class PageTranslator(
             context = context,
             language = s.language,
             translateSoundEffects = s.translateSoundEffects,
+            // Claude 4.7+ answers in pixels of the image (and errs when asked for 0–1000); Gemini in 0–1000
+            units = if (provider.type == AiProviderType.Anthropic) BoxUnits.Pixels else BoxUnits.PerMille,
         )
         val regions = result.regions
 
@@ -97,27 +100,33 @@ class PageTranslator(
     }
 
     /**
-     * The page as the model sees it. Pages of normal size go as they are (no quality loss);
-     * very large ones are scaled down to save upload and tokens. Box coordinates are relative
-     * (0–1000), so the scale does not matter for them.
+     * The page as the model sees it. Pages of normal size go as they are (no quality loss); very
+     * large ones are scaled down to save upload and tokens, and so that Claude doesn't scale them
+     * itself (its pixel coordinates then match the image we know).
      */
-    private fun imageForModel(input: ByteArray, size: PageBitmaps.Size): AiImage {
+    private fun imageForModel(input: ByteArray, size: PageBitmaps.Size): PageTextTranslator.ModelImage {
         val mime = PageBitmaps.mimeType(input)
         val supported = mime == "image/jpeg" || mime == "image/png" || mime == "image/webp"
-        if (supported && maxOf(size.width, size.height) <= MAX_MODEL_SIDE && input.size <= MAX_MODEL_BYTES) {
-            return AiImage(input, mime)
+        val factor = minOf(
+            1f,
+            MAX_MODEL_SIDE.toFloat() / maxOf(size.width, size.height),
+            kotlin.math.sqrt(MAX_MODEL_PIXELS.toFloat() / (size.width.toLong() * size.height)),
+        )
+        if (supported && factor >= 1f && input.size <= MAX_MODEL_BYTES) {
+            return PageTextTranslator.ModelImage(AiImage(input, mime), size.width, size.height)
         }
         val bitmap = PageBitmaps.decode(input, maxSide = MAX_MODEL_SIDE)
-        val scaled = if (maxOf(bitmap.width, bitmap.height) > MAX_MODEL_SIDE) {
-            val factor = MAX_MODEL_SIDE.toFloat() / maxOf(bitmap.width, bitmap.height)
-            Bitmap.createScaledBitmap(bitmap, (bitmap.width * factor).toInt(), (bitmap.height * factor).toInt(), true)
+        val width = (size.width * factor).toInt().coerceAtLeast(1)
+        val height = (size.height * factor).toInt().coerceAtLeast(1)
+        val scaled = if (bitmap.width != width || bitmap.height != height) {
+            Bitmap.createScaledBitmap(bitmap, width, height, true)
         } else {
             bitmap
         }
         val bytes = PageBitmaps.encode(scaled, Bitmap.CompressFormat.JPEG, quality = 90)
         if (scaled !== bitmap) scaled.recycle()
         bitmap.recycle()
-        return AiImage(bytes, "image/jpeg")
+        return PageTextTranslator.ModelImage(AiImage(bytes, "image/jpeg"), width, height)
     }
 
     private fun List<TextRegion>.scaledTo(factor: Float) = map { region ->
@@ -134,5 +143,8 @@ class PageTranslator(
     private companion object {
         const val MAX_MODEL_SIDE = 2048
         const val MAX_MODEL_BYTES = 4 * 1024 * 1024
+
+        /** Claude scales larger images down itself (about 3.75 MP); keep below to know the size. */
+        const val MAX_MODEL_PIXELS = 3_500_000
     }
 }

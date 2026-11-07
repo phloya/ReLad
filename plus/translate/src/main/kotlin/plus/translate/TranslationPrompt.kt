@@ -19,7 +19,12 @@ object TranslationPrompt {
     /** Bump when the prompt or the answer format changes: cached translations are then redone. */
     const val VERSION = 2
 
-    fun rules(language: TargetLanguage, sourceLanguage: String?, translateSoundEffects: Boolean): String {
+    fun rules(
+        language: TargetLanguage,
+        sourceLanguage: String?,
+        translateSoundEffects: Boolean,
+        units: BoxUnits = BoxUnits.PerMille,
+    ): String {
         val source = SourceLanguage.of(sourceLanguage)
         val style = LanguageStyle.of(language.code)
         return """
@@ -69,20 +74,28 @@ object TranslationPrompt {
              "summary":"…"}
             - "type": "bubble", "caption" (narration), "sfx" or "other".
             - "box": tight box around the text itself (for bubbles: the text inside, not the whole bubble),
-              integers 0–1000 relative to the image, y from the top edge, x from the left edge.
+              {UNITS}, y from the top edge, x from the left edge.
             - "speaker": the original name (as in the Characters list) of who says it, only if the art makes it
               clear; otherwise "unsure". Narration and sound effects: "unsure".
             - "text": the original text exactly as written. "translation": your translation.
             - Regions in reading order. ${source.readingOrder} One bubble = one region, even with several lines.
             - "new_characters": named characters not in the Characters list who appear or are named on this page:
               "original" in the source script, "name" as you wrote it, "gender" male/female/other/unknown,
-              "speech": how they talk, in a few words (register, how they refer to themselves, verbal tics).
+              "speech": how they talk, in a few words (register, how they refer to themselves, verbal tics);
+              "" if they don't speak yet.
             - "new_terms": names of places, groups, techniques, ranks, items, creatures or catchphrases not in the
               Glossary that should stay the same later. "kind": place, organization, technique, title, item,
               creature, catchphrase or other. Ordinary words are not terms.
             - "summary": one or two sentences on what happens on this page and between whom.
             - A page with no text: {"regions":[],"summary":"…"}.
         """.trimIndent()
+            .replace(
+                "{UNITS}",
+                when (units) {
+                    BoxUnits.PerMille -> "integers 0–1000 relative to the image's height and width"
+                    BoxUnits.Pixels -> "integers in pixels of the image (its size is given with the page)"
+                },
+            )
             // Multi-line parts go in after trimIndent, which would otherwise see their lines' zero indent
             .replace(
                 "{STYLE}",
@@ -101,9 +114,11 @@ object TranslationPrompt {
         chapterName: String,
         pageIndex: Int,
         previous: List<TextRegion>,
+        imageSize: Pair<Int, Int>? = null,
     ): String =
         buildString {
             append("Chapter: ").append(chapterName).append(", page ").append(pageIndex + 1).append(".\n")
+            imageSize?.let { (w, h) -> append("The image is ").append(w).append(" × ").append(h).append(" pixels.\n") }
             val soFar = BiblePrompt.chapterSoFar(bible, chapterId, pageIndex)
             if (soFar.isNotEmpty()) append("Earlier in this chapter: ").append(soFar).append('\n')
             if (previous.isNotEmpty()) {

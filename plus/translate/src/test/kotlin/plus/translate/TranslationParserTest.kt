@@ -104,4 +104,24 @@ class TranslationParserTest {
 
         TranslationParser.parseFixes(answer) shouldBe mapOf(0 to "Корпус")
     }
+
+    @Test
+    fun `pixel boxes are read in the model image's pixels and scaled to the page`() {
+        // Claude got a 1036 x 1600 image of a 2072 x 3200 page and answered in its pixels
+        val answer = """{"regions":[{"type":"bubble","box":[1085,60,1265,230],"translation":"x"}]}"""
+
+        TranslationParser.parsePage(answer, 2072, 3200, BoxUnits.Pixels, 1036, 1600).regions.single().box shouldBe
+            Box(left = 120, top = 2170, right = 460, bottom = 2530)
+    }
+
+    @Test
+    fun `numbers above 1000 are read as pixels even when 0-1000 was asked`() {
+        val answer = """{"regions":[
+            {"type":"bubble","box":[100,60,200,230],"translation":"top"},
+            {"type":"bubble","box":[1085,60,1265,230],"translation":"bottom"}]}"""
+
+        val regions = TranslationParser.parsePage(answer, 1036, 1600, BoxUnits.PerMille, 1036, 1600).regions
+
+        regions.map { it.box.top } shouldBe listOf(100, 1085)
+    }
 }
