@@ -143,7 +143,9 @@ object BubbleEraser {
             Box(area.left, area.top, area.right, area.bottom)
         } else {
             // Open bubble or white page: only where the letters are, so no white spills onto the art
-            inkBox(pixels, width, area, textBox, first, last)?.expanded(INK_MARGIN, width, height)
+            // Letters are looked for a little around the model's rough box: it often misses some
+            inkBox(pixels, width, area, textBox.expanded(INK_SEARCH, width, height), first, last)
+                ?.expanded(INK_MARGIN, width, height)
                 ?.let { ink -> intersect(ink, paintBox) } ?: paintBox
         }
         for (y in 0 until areaHeight) {
@@ -216,7 +218,10 @@ object BubbleEraser {
     }
 
     /** Pixels are only painted this far around the text box (share of its size). */
-    const val PAINT_MARGIN = 0.15f
+    const val PAINT_MARGIN = 0.3f
+
+    /** How far around the model's box letters are looked for in an open bubble (share of its size). */
+    private const val INK_SEARCH = 0.25f
 
     /** Around the letters found, as a share of their box's size. */
     private const val INK_MARGIN = 0.12f
