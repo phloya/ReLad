@@ -92,6 +92,13 @@ object BubbleEraser {
         textBox: Box,
         searchBox: Box,
         paintBox: Box = textBox.expanded(PAINT_MARGIN, width, height),
+        /**
+         * Erased whole only if at least this share of the text box is in the light area: a sign
+         * or banner holds drawings too, and its text box may cover only part of its text.
+         */
+        wholeCoverage: Float = 0f,
+        /** Letters are followed past the box along their lines (not on a sign: drawings on it would be too). */
+        followLetters: Boolean = true,
     ): Result {
         val area = Box(
             left = searchBox.left.coerceIn(0, width),
@@ -148,22 +155,24 @@ object BubbleEraser {
         if (best == 0) return Result(null, WHITE)
         val filled = BooleanArray(light.size) { label[it] == best }
 
-        var sumR = 0L
-        var sumG = 0L
-        var sumB = 0L
-        var count = 0L
+        // The paper's colour: the middle one of each channel (the letters' blended edges would make
+        // a mean a shade darker, and a painted patch would show)
+        val reds = IntArray(LEVELS)
+        val greens = IntArray(LEVELS)
+        val blues = IntArray(LEVELS)
+        var count = 0
         for (i in filled.indices) {
             if (!filled[i]) continue
             val color = pixels[(area.top + i / areaWidth) * width + area.left + i % areaWidth]
-            sumR += (color shr 16) and 0xFF
-            sumG += (color shr 8) and 0xFF
-            sumB += color and 0xFF
+            reds[(color shr 16) and 0xFF]++
+            greens[(color shr 8) and 0xFF]++
+            blues[color and 0xFF]++
             count++
         }
         val background = (0xFF shl 24) or
-            ((sumR / count).toInt() shl 16) or
-            ((sumG / count).toInt() shl 8) or
-            (sumB / count).toInt()
+            (median(reds, count) shl 16) or
+            (median(greens, count) shl 8) or
+            median(blues, count)
 
         // The light area and everything it encloses: the letters (dark spots with light all around).
         // Dark lines that run out of it (the outline, the line between two joined bubbles) are not
@@ -275,13 +284,23 @@ object BubbleEraser {
         if (top < 0) return Result(null, WHITE)
         val erased = Box(area.left + left, area.top + top, area.left + right + 1, area.top + bottom + 1)
 
+        var covered = 0L
+        for (y in maxOf(textBox.top, area.top + top) until minOf(textBox.bottom, area.top + bottom + 1)) {
+            val row = y - area.top
+            if (first[row] < 0) continue
+            val from = maxOf(textBox.left, area.left + first[row])
+            val to = minOf(textBox.right, area.left + last[row] + 1)
+            if (to > from) covered += to - from
+        }
+        val coverage = covered.toFloat() / textArea
+
         // A closed bubble is erased whole: the model's box is rough and may miss a line of the text.
         // Not too big for the text, though: a light area that size is more likely art than a bubble.
-        val whole = enclosed && lobe <= textArea * MAX_BUBBLE_TO_TEXT
+        val whole = enclosed && lobe <= textArea * MAX_BUBBLE_TO_TEXT && coverage >= wholeCoverage
         // Open bubble or white page: only where the letters are, so no white spills onto the art.
         // Letters are looked for a little around the model's rough box (it often misses some) and
         // along their line for as long as it goes on
-        val ink = if (whole) {
+        val ink = if (whole || !followLetters) {
             null
         } else {
             inkBox(
@@ -309,15 +328,6 @@ object BubbleEraser {
         // An open bubble's light area may run on into the art: text stays near the original letters
         val room = if (whole) component else component.within((ink ?: paint).expanded(OPEN_ROOM, width, height))
 
-        var covered = 0L
-        for (y in maxOf(textBox.top, area.top + top) until minOf(textBox.bottom, area.top + bottom + 1)) {
-            val row = y - area.top
-            if (first[row] < 0) continue
-            val from = maxOf(textBox.left, area.left + first[row])
-            val to = minOf(textBox.right, area.left + last[row] + 1)
-            if (to > from) covered += to - from
-        }
-        val coverage = covered.toFloat() / textArea
         val fill = lobeLight.toFloat() / lobe.coerceAtLeast(1)
 
         val rows = if (whole) spans else null
@@ -335,6 +345,15 @@ object BubbleEraser {
             area = area,
             inside = inside,
         )
+    }
+
+    private fun median(histogram: IntArray, count: Int): Int {
+        var sum = 0
+        for (level in histogram.indices) {
+            sum += histogram[level]
+            if (sum * 2 >= count) return level
+        }
+        return histogram.size - 1
     }
 
     /** Light pixels of [box] inside the search [area]. */
@@ -422,6 +441,8 @@ object BubbleEraser {
         val b = color and 0xFF
         return (r * 299 + g * 587 + b * 114) / 1000
     }
+
+    private const val LEVELS = 256
 
     /** Pixels are only painted this far around the text box (share of its size). */
     const val PAINT_MARGIN = 0.3f

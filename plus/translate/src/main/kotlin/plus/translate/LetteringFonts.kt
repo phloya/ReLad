@@ -35,6 +35,6 @@ class LetteringFonts(
             .build()
 
         private const val REGULAR_WEIGHT = 560
-        private const val BOLD_WEIGHT = 780
+        private const val BOLD_WEIGHT = 800
     }
 }

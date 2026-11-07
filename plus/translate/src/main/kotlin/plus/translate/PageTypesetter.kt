@@ -28,17 +28,29 @@ object PageTypesetter {
 
     private fun draw(canvas: Canvas, lettering: PageLettering.Lettering) {
         val font = lettering.font as PaintMeasurer
+        val thicken = lettering.block.size * lettering.thicken
         val fill = TextPaint(font.paint).apply {
             textSize = lettering.block.size
             color = lettering.fill
+            if (thicken > 0f) {
+                // Bolder than the font: a stroke of the fill's colour around the letters
+                style = Paint.Style.FILL_AND_STROKE
+                strokeWidth = thicken
+                strokeJoin = Paint.Join.ROUND
+            }
         }
         val outline = lettering.outline?.let { color ->
             TextPaint(fill).apply {
                 style = Paint.Style.STROKE
-                strokeWidth = fill.textSize * lettering.outlineWidth
+                strokeWidth = fill.textSize * lettering.outlineWidth + thicken
                 strokeJoin = Paint.Join.ROUND
                 this.color = color
             }
+        }
+        val turned = lettering.angle != 0f
+        if (turned) {
+            canvas.save()
+            canvas.rotate(lettering.angle, lettering.pivotX, lettering.pivotY)
         }
         for (line in lettering.block.lines) {
             val text = font.drawable(line.text)
@@ -48,6 +60,7 @@ object PageTypesetter {
             outline?.let { canvas.drawTextRun(text, 0, text.length, 0, text.length, x, line.baseline, rtl, it) }
             canvas.drawTextRun(text, 0, text.length, 0, text.length, x, line.baseline, rtl, fill)
         }
+        if (turned) canvas.restore()
     }
 
     private fun isRtl(text: String): Boolean {
