@@ -187,9 +187,27 @@ object PlusReader {
                             }
                         }
                     }
+                    translateNextChapter(activity, graph, chapter)
                 }
             }
         }
+    }
+
+    /**
+     * The open chapter is done: the next one is translated in the background (when the reader
+     * wants it), so turning to it there is nothing to wait for. Not after a failure: the next
+     * chapter would only stop the same way.
+     */
+    private fun translateNextChapter(activity: ReaderActivity, graph: PlusGraph, chapter: ReaderChapter) {
+        if (!TranslateFeature.translatesNextChapter(graph)) return
+        val manga = activity.viewModel.manga ?: return
+        val chapters = activity.viewModel.state.value.viewerChapters ?: return
+        if (chapters.currChapter !== chapter) return
+        val next = chapters.nextChapter?.chapter ?: return
+        val failed = knownPages(chapter).values.any { known ->
+            graph.engine.state(known.hash, known.context) is PageProcessingEngine.PageState.Failed
+        }
+        if (!failed) ChapterTranslation.start(activity, manga, listOf(next), quiet = true)
     }
 
     private suspend fun prepare(activity: ReaderActivity, graph: PlusGraph, page: ReaderPage) {
@@ -247,5 +265,5 @@ object PlusReader {
     private const val RELOADS_BUFFER = 8
 
     /** Pages of a chapter made ready at once: as many as the translation step takes at a time. */
-    private const val AHEAD = 6
+    private const val AHEAD = 10
 }

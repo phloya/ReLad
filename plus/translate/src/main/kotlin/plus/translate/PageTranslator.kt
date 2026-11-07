@@ -49,8 +49,11 @@ class PageTranslator(
     override val id = "translate"
     override val order = 300
 
-    /** Mostly waiting for the model's server: several pages at once, so a chapter is ready sooner. */
-    override val concurrency = 6
+    /**
+     * Mostly waiting for the model's server: several pages at once, so a chapter is ready sooner.
+     * Drawing is limited apart ([RENDER_AT_ONCE]), so waiting pages hold little memory.
+     */
+    override val concurrency = 10
 
     private val json = Json
     private val lettering by lazy { fonts() }

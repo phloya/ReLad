@@ -54,18 +54,23 @@ object ChapterTranslation {
         return graph.isEnabled(TranslateFeature)
     }
 
-    /** [fresh]: translate again (Translate again in the reader), not only the pages not done yet. */
-    fun start(context: Context, manga: Manga, chapters: List<Chapter>, fresh: Boolean = false) {
+    /**
+     * [fresh]: translate again (Translate again in the reader), not only the pages not done yet.
+     * [quiet]: started by Re:Lad itself (the next chapter ahead): no toasts, the notice only.
+     */
+    fun start(context: Context, manga: Manga, chapters: List<Chapter>, fresh: Boolean = false, quiet: Boolean = false) {
         val app = context.applicationContext
         val graph = Plus.graph(app)
         val todo = chapters
             .sortedWith(compareBy<Chapter> { it.chapterNumber }.thenByDescending { it.sourceOrder })
             .filter { running.add(it.id) }
         if (todo.isEmpty()) return
-        // Pressed again after a stop (no credits, the model refused...): pages that failed a moment
-        // ago are tried again now, pages already done come from the kept translations
-        graph.engine.retryFailed()
-        Toast.makeText(app, app.getString(R.string.plus_translate_started, todo.size), Toast.LENGTH_SHORT).show()
+        if (!quiet) {
+            // Pressed again after a stop (no credits, the model refused...): pages that failed a moment
+            // ago are tried again now, pages already done come from the kept translations
+            graph.engine.retryFailed()
+            Toast.makeText(app, app.getString(R.string.plus_translate_started, todo.size), Toast.LENGTH_SHORT).show()
+        }
         graph.scope.launch(Dispatchers.IO) {
             // One notice per title: pressing Translate again after a stop replaces the stop notice
             val notifier = Notifier(app, manga.title, NOTIFICATION_BASE + (manga.id and TITLE_BITS).toInt())
@@ -84,6 +89,7 @@ object ChapterTranslation {
                 todo.forEach { running.remove(it.id) }
             }
             notifier.finish(translated, todo.size, error)
+            if (quiet) return@launch
             withContext(Dispatchers.Main) {
                 val text = if (error != null) {
                     app.getString(R.string.plus_status_stopped, PlusReaderStatus.reason(app, error!!))
@@ -264,7 +270,7 @@ object ChapterTranslation {
     private const val CHANNEL = "relad_translate"
     private const val NOTIFICATION_BASE = 0x7E1A0
     private const val TITLE_BITS = 0xFFFL
-    private const val AT_ONCE = 6
+    private const val AT_ONCE = 10
     private const val POLL_MS = 1_000L
     private const val MAX_WAIT_MS = 180_000L
 }

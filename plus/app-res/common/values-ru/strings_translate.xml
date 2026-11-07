@@ -27,4 +27,6 @@
     <string name="plus_retranslate_page">Эту страницу</string>
     <string name="plus_retranslate_chapter">Всю главу</string>
     <string name="plus_retranslate_button">Перевод заново</string>
+    <string name="plus_translate_next_chapter">Переводить следующую главу заранее</string>
+    <string name="plus_translate_next_chapter_summary">Когда открытая глава готова, следующая переводится в фоне, и при переходе ждать не придётся. Тратит токены и на главу, которую вы, возможно, не откроете</string>
 </resources>
