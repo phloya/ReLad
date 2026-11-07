@@ -197,7 +197,7 @@ object TextPlacer {
     private fun movable(region: TextRegion) = region.type.erasesOriginal && expectedChars(region.text) > 0
 
     /** Japanese (and Chinese) is set in columns; Korean in lines. */
-    private fun verticalScript(text: String) = text.any {
+    internal fun verticalScript(text: String) = text.any {
         val script = Character.UnicodeScript.of(it.code)
         script == Character.UnicodeScript.HIRAGANA || script == Character.UnicodeScript.KATAKANA ||
             script == Character.UnicodeScript.HAN

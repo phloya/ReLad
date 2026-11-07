@@ -14,7 +14,8 @@ import javax.imageio.ImageIO
  *       RELAD_REPLAY_OUT=/tmp/placed ./gradlew :plus:translate:testDebugUnitTest --tests '*TextPlacerReplayTest*'
  *
  * Writes each run's pages with the boxes moved into RELAD_REPLAY_OUT/<run name>/, with a log of
- * what moved where, and the texts found on each page into RELAD_REPLAY_OUT/found/.
+ * what moved where and the text the answer left out ([MissedText], `.missed`), and the texts
+ * found on each page into RELAD_REPLAY_OUT/found/.
  */
 @EnabledIfEnvironmentVariable(named = "RELAD_REPLAY_PAGES", matches = ".+")
 class TextPlacerReplayTest {
@@ -68,6 +69,11 @@ class TextPlacerReplayTest {
                         json.encodeToString(TranslatedPage.serializer(), page.copy(regions = placed)),
                     )
                     File(target, "$name.txt").writeText(log.toString())
+                    // Text on the page the answer left out
+                    val missed = MissedText.find(pixels, width, height, page.regions)
+                    File(target, "$name.missed").writeText(
+                        missed.joinToString("\n") { "${it.box} letters=${it.letters} lines=${it.lines}" },
+                    )
                 }
             }
         }
