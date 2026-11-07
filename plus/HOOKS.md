@@ -71,6 +71,14 @@ Workflow Mihon `build.yml` (сборка, тесты, стиль кода на �
 Свайпы в ленте ловятся без правок Mihon: `RecyclerView.OnFlingListener` и слушатель прокрутки
 ставятся из нашего кода.
 
+## Перевод страниц (ветка `relad/translate`)
+
+| Файл Mihon | Что изменено | Зачем |
+|---|---|---|
+| `app/.../mihon/app/di/AppGraph.kt` | Поле `downloadProvider` | Перевод глав из меню загружает страницы теми же загрузчиками, что и читалка (`ChapterLoader`), а ему нужен `DownloadProvider` |
+| `app/.../presentation/manga/components/MangaBottomActionMenu.kt` | Параметр `onTranslateClicked` и кнопка «Перевести» (значок-глобус) в меню выделенных глав | Перевести выбранные главы в фоне, не открывая их |
+| `app/.../presentation/manga/MangaScreen.kt` → `SharedMangaBottomActionMenu` | Параметр `manga`, кнопка вызывает `ChapterTranslation.start` | То же |
+
 ## Наши файлы (конфликтов с Mihon не бывает)
 
 | Путь | Что это |

@@ -8,4 +8,11 @@
     <string name="plus_translate_whole_chapter_summary">As soon as a chapter opens, all its pages are translated in order, a few at a time, with no waiting on each page. Pages left unread are paid for too. Online chapters: as fast as the pages download</string>
     <string name="plus_translate_no_providers">Add an AI provider first</string>
     <string name="plus_translate_how">Each page is one request to the AI provider: it finds the text and translates it. A vision model is needed (e.g. Gemini Flash, GPT-4o-class, Claude). Translated pages are kept, so re-reading costs nothing.</string>
+    <string name="plus_translate_chapters">Translate</string>
+    <string name="plus_translate_started">Translating chapters in the background: %1$d</string>
+    <string name="plus_translate_finished">Chapters translated: %1$d of %2$d</string>
+    <string name="plus_translate_channel">Chapter translation</string>
+    <string name="plus_translate_notification_title">Translating %1$s</string>
+    <string name="plus_translate_progress">%1$s: %2$d of %3$d pages</string>
+    <string name="plus_translate_progress_chapters">chapter %1$d of %2$d</string>
 </resources>
