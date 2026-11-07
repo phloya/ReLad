@@ -17,8 +17,11 @@ import kotlin.math.sqrt
  * - gradient strength (only low-contrast texture: crisp tone and ink strokes come out fine).
  *
  * Found tone is smoothed with a bilateral filter, which flattens low-contrast texture and keeps
- * lines and text sharp; the network then sees flat grey there. Pages with almost no such tone
- * (most clean scans and digital pages) are left untouched.
+ * lines and text sharp; the network then sees flat grey there and draws no worms. What the filter
+ * took out (the dots of the scan) is put back after the network, upscaled bicubically
+ * ([Smoothed.restoreTexture]): the tone keeps its texture, the lines get the network's sharpness.
+ * Without that step the tone came out flat and "soapy" (the owner's verdict). Pages with almost no
+ * such tone (most clean scans and digital pages) are left untouched.
  *
  * plus/tools/enhance-bench/tone.py is the same algorithm in Python, used to tune it on real pages.
  */
@@ -64,15 +67,120 @@ object Screentone {
         }
     }
 
+    /** Share of the texture taken out before the network that is put back after it (owner: "везде 100 %"). */
+    private const val TEXTURE = 1f
+
     /**
      * Smooths the unresolvable tone of [pixels] (ARGB, [width]×[height]) in place.
-     * Returns the share of the page that is tone, or `null` if there was too little to touch.
+     * Returns what was done, or `null` if the page has too little such tone to touch.
      */
-    fun smooth(pixels: IntArray, width: Int, height: Int): Float? {
+    fun smooth(pixels: IntArray, width: Int, height: Int): Smoothed? {
         val mask = detect(pixels, width, height)
         if (mask.share < MIN_SHARE) return null
+        val original = pixels.copyOf()
         apply(pixels, width, height, mask)
-        return mask.share
+        return Smoothed(mask.share, original, pixels, width, height)
+    }
+
+    /** A page smoothed by [smooth]: [original] before, [smoothed] after (the same array as the page). */
+    class Smoothed internal constructor(
+        /** Share of the page that is tone. */
+        val share: Float,
+        private val original: IntArray,
+        private val smoothed: IntArray,
+        private val width: Int,
+        private val height: Int,
+    ) {
+        /** Rows of the page where smoothing changed something. */
+        private val changedRows = BooleanArray(height) { y ->
+            (y * width until (y + 1) * width).any { original[it] and 0xFFFFFF != smoothed[it] and 0xFFFFFF }
+        }
+
+        /**
+         * Adds the texture the smoothing took out back to the network's result, upscaled ×2
+         * (bicubic, a = -0.5). [band] holds rows [firstRow] until [firstRow] + [rows] of the
+         * (2·width)×(2·height) result, ARGB; it is changed in place, so a big page can go in bands.
+         */
+        fun restoreTexture(band: IntArray, firstRow: Int, rows: Int) {
+            val outWidth = width * 2
+            require(band.size >= rows * outWidth && firstRow >= 0 && firstRow + rows <= height * 2)
+            if (rows == 0) return
+            // Input rows the band reads: output row Y samples rows Y / 2 - 2 .. Y / 2 + 1 (clamped)
+            val fromRow = maxOf(0, firstRow / 2 - 2)
+            val toRow = minOf(height - 1, (firstRow + rows) / 2 + 1)
+            // Horizontal pass: each input row's texture upscaled ×2 in width, 3 channels
+            val stride = outWidth * 3
+            val horizontal = FloatArray((toRow - fromRow + 1) * stride)
+            for (y in fromRow..toRow) {
+                if (!changedRows[y]) continue
+                val base = (y - fromRow) * stride
+                for (outX in 0 until outWidth) {
+                    val weights = if (outX % 2 == 0) EVEN else ODD
+                    val first = (outX + 1) / 2 - 2 // leftmost tap
+                    var r = 0f
+                    var g = 0f
+                    var b = 0f
+                    for (k in 0 until 4) {
+                        val i = y * width + (first + k).coerceIn(0, width - 1)
+                        val o = original[i]
+                        val s = smoothed[i]
+                        val w = weights[k]
+                        r += w * (((o shr 16) and 0xFF) - ((s shr 16) and 0xFF))
+                        g += w * (((o shr 8) and 0xFF) - ((s shr 8) and 0xFF))
+                        b += w * ((o and 0xFF) - (s and 0xFF))
+                    }
+                    horizontal[base + outX * 3] = r
+                    horizontal[base + outX * 3 + 1] = g
+                    horizontal[base + outX * 3 + 2] = b
+                }
+            }
+            // Vertical pass, added to the result
+            for (row in 0 until rows) {
+                val outY = firstRow + row
+                val weights = if (outY % 2 == 0) EVEN else ODD
+                val first = (outY + 1) / 2 - 2
+                val taps = IntArray(4) { (first + it).coerceIn(0, height - 1) }
+                if (taps.none { changedRows[it] }) continue
+                for (outX in 0 until outWidth) {
+                    var r = 0f
+                    var g = 0f
+                    var b = 0f
+                    for (k in 0 until 4) {
+                        val base = (taps[k] - fromRow) * stride + outX * 3
+                        val w = weights[k]
+                        r += w * horizontal[base]
+                        g += w * horizontal[base + 1]
+                        b += w * horizontal[base + 2]
+                    }
+                    val i = row * outWidth + outX
+                    val p = band[i]
+                    band[i] = (p and 0xFF000000.toInt()) or
+                        (round(((p shr 16) and 0xFF) + TEXTURE * r) shl 16) or
+                        (round(((p shr 8) and 0xFF) + TEXTURE * g) shl 8) or
+                        round((p and 0xFF) + TEXTURE * b)
+                }
+            }
+        }
+    }
+
+    /**
+     * Bicubic (Keys, a = -0.5) weights of the four taps for ×2: an even output pixel lies 0.75 past
+     * its second tap, an odd one 0.25 past it.
+     */
+    private val EVEN = cubicWeights(0.75f)
+    private val ODD = cubicWeights(0.25f)
+
+    private fun cubicWeights(t: Float): FloatArray {
+        fun keys(d: Float): Float {
+            val a = -0.5f
+            val x = kotlin.math.abs(d)
+            return when {
+                x <= 1 -> (a + 2) * x * x * x - (a + 3) * x * x + 1
+                x < 2 -> a * x * x * x - 5 * a * x * x + 8 * a * x - 4 * a
+                else -> 0f
+            }
+        }
+        return floatArrayOf(keys(1 + t), keys(t), keys(1 - t), keys(2 - t))
     }
 
     /** The tone mask of [pixels] (ARGB). */

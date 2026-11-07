@@ -1,6 +1,7 @@
 """Objective check on real pages: spoil a clean page the way bad scans are spoiled, enhance it like the
 phone does (paper whitening, strength from the JPEG quality, Real-CUGAN in 200 px tiles), with and
-without the screentone smoothing of tone.py, and score both against the clean page.
+without the screentone handling of tone.py (smoothing before the network, texture back after it),
+and score both against the clean page.
 
 usage: real_bench.py <models dir> <out dir> <clean page>...
        DAMAGE=fine,fine60 real_bench.py ...   # only some kinds of damage
@@ -9,7 +10,7 @@ Scores (luma, against the clean page scaled to the result's size):
   psnr, ssim      whole page
   white_noise     std left on areas that are flat white paper in the clean page (lower is cleaner)
   tone_psnr       PSNR after a blur (sigma 2) inside the found tone, i.e. is the tone's grey kept
-                  without mottling (dots and smooth grey both score well, "worms" do not)
+                  without mottling ("worms" score badly)
 """
 import io
 import os
@@ -85,7 +86,11 @@ def cugan(rgb, model, name):
     m = f"{MODELS}/{model}"
     subprocess.run([sys.executable, "-I", f"{HERE}/tiled.py", f"{m}.param", f"{m}.bin", src, dst, "200", "tiles200"],
                    check=True, capture_output=True)
-    return np.asarray(Image.open(dst).convert("L")).astype(np.float32)
+    return np.asarray(Image.open(dst).convert("RGB"))
+
+
+def grey(rgb):
+    return np.asarray(Image.fromarray(rgb).convert("L")).astype(np.float32)
 
 
 def ssim(a, b):
@@ -116,7 +121,13 @@ for path in PAGES:
         page = whiten(scan)
         smoothed, mask, changed = tone.process(page)
         old = cugan(page, model, f"{name}-old")
-        new = cugan(np.clip(smoothed + 0.5, 0, 255).astype(np.uint8), model, f"{name}-new") if changed else old
+        if changed:
+            smoothed = np.clip(np.floor(smoothed + 0.5), 0, 255).astype(np.uint8)
+            new = tone.restore(cugan(smoothed, model, f"{name}-new"), page, smoothed)
+            Image.fromarray(new).save(f"{OUT}/{name}-new-restored.png")
+        else:
+            new = old
+        old, new = grey(old), grey(new)
         h, w = old.shape
         truth = np.asarray(clean.resize((w, h), Image.LANCZOS)).astype(np.float32)
         flat = minimum_filter(truth, size=9) > 250

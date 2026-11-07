@@ -1,6 +1,7 @@
 package plus.enhance
 
 import io.kotest.matchers.collections.shouldContainExactly
+import io.kotest.matchers.doubles.shouldBeGreaterThan
 import io.kotest.matchers.doubles.shouldBeLessThan
 import io.kotest.matchers.floats.shouldBeGreaterThan
 import io.kotest.matchers.floats.shouldBeLessThan
@@ -50,7 +51,7 @@ class ScreentoneTest {
         val before = spread(pixels)
         val mean = pixels.map { it and 0xFF }.average()
 
-        val share = Screentone.smooth(pixels, w, h).shouldNotBeNull()
+        val share = Screentone.smooth(pixels, w, h).shouldNotBeNull().share
 
         share shouldBeGreaterThan 0.9f
         spread(pixels) shouldBeLessThan before / 10
@@ -117,6 +118,68 @@ class ScreentoneTest {
             mask.height shouldBe (ph + 1) / 2
             Screentone.smooth(pixels, pw, ph)
         }
+    }
+
+    /** The network's result stand-in: every pixel of [pixels] repeated 2×2. */
+    private fun doubled(pixels: IntArray, pw: Int = w, ph: Int = h) =
+        IntArray(pw * ph * 4) { i -> pixels[(i / (pw * 2)) / 2 * pw + (i % (pw * 2)) / 2] }
+
+    /** Standard deviation of the grey of a 2× image, 40 px from the edges. */
+    private fun spread2(pixels: IntArray): Double {
+        val values = (40 until 2 * h - 40).flatMap { y ->
+            (40 until 2 * w - 40).map { x ->
+                pixels[y * 2 * w + x] and
+                    0xFF
+            }
+        }
+        val mean = values.average()
+        return sqrt(values.sumOf { (it - mean) * (it - mean) } / values.size)
+    }
+
+    @Test
+    fun `the texture taken out comes back after the network`() {
+        val original = page(::fineTone)
+        val pixels = original.copyOf()
+        val tone = Screentone.smooth(pixels, w, h).shouldNotBeNull()
+        val result = doubled(pixels)
+        val flat = spread2(result)
+
+        tone.restoreTexture(result, 0, 2 * h)
+
+        // The dots are back (bicubic softens a pattern this fine a little), the grey is the same
+        val original2 = doubled(original)
+        spread2(result) shouldBeGreaterThan maxOf(flat * 5, spread2(original2) * 0.5)
+        abs(result.map { it and 0xFF }.average() - original2.map { it and 0xFF }.average()) shouldBeLessThan 1.0
+    }
+
+    @Test
+    fun `texture goes back the same in bands as in one go`() {
+        val pixels = page { x, y -> if (x in 78..81) 10.0 else fineTone(x, y) }
+        val tone = Screentone.smooth(pixels, w, h).shouldNotBeNull()
+        val whole = doubled(pixels)
+        tone.restoreTexture(whole, 0, 2 * h)
+
+        val banded = doubled(pixels)
+        var y = 0
+        for (rows in generateSequence(7) { it + 6 }) {
+            val n = minOf(rows, 2 * h - y)
+            val band = banded.copyOfRange(y * 2 * w, (y + n) * 2 * w)
+            tone.restoreTexture(band, y, n)
+            band.copyInto(banded, y * 2 * w)
+            y += n
+            if (y == 2 * h) break
+        }
+        banded.toList() shouldContainExactly whole.toList()
+    }
+
+    @Test
+    fun `a constant difference comes back unchanged`() {
+        // Bicubic weights sum to 1: an even shift of the grey is restored exactly, edges included
+        val original = IntArray(6 * 5) { (0xFF shl 24) or (0x70 shl 16) or (0x70 shl 8) or 0x70 }
+        val smoothed = IntArray(6 * 5) { (0xFF shl 24) or (0x64 shl 16) or (0x64 shl 8) or 0x64 }
+        val result = doubled(smoothed, 6, 5)
+        Screentone.Smoothed(1f, original, smoothed, 6, 5).restoreTexture(result, 0, 10)
+        result.toList() shouldContainExactly doubled(original, 6, 5).toList()
     }
 
     @Test

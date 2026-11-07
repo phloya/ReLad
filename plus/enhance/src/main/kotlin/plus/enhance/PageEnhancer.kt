@@ -76,6 +76,7 @@ class PageEnhancer(
                 } finally {
                     bitmap.recycle()
                 }
+                prepared.tone?.let { restoreTexture(result, it) }
                 lastRun = Run(
                     width = size.width,
                     height = size.height,
@@ -85,7 +86,7 @@ class PageEnhancer(
                     jpegQuality = ScanQuality.jpegQuality(input),
                     whitened = prepared.whitened,
                     cloudModel = null,
-                    toneShare = prepared.toneShare,
+                    toneShare = prepared.tone?.share,
                 )
                 val bytes = PageBitmaps.encode(result, Bitmap.CompressFormat.JPEG, quality = 95)
                 result.recycle()
@@ -133,12 +134,12 @@ class PageEnhancer(
         return ProcessedPage(result)
     }
 
-    private class Prepared(val whitened: Boolean, val toneShare: Float?)
+    private class Prepared(val whitened: Boolean, val tone: Screentone.Smoothed?)
 
     /**
      * Gets [bitmap] ready for the network, in place: whitens the paper and smooths screentone the
-     * network would turn into "worms" ([Screentone]). Pages for the cloud keep their tone: those
-     * are other models.
+     * network would turn into "worms" ([Screentone]; its texture goes back in [restoreTexture]).
+     * Pages for the cloud keep their tone: those are other models.
      */
     private fun prepare(bitmap: Bitmap, whitenPaper: Boolean, smoothTone: Boolean): Prepared {
         val w = bitmap.width
@@ -147,9 +148,21 @@ class PageEnhancer(
         bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
         val gains = if (whitenPaper) PaperWhitening.analyze(pixels) else null
         gains?.let { PaperWhitening.apply(pixels, it) }
-        val toneShare = if (smoothTone) Screentone.smooth(pixels, w, h) else null
-        if (gains != null || toneShare != null) bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
-        return Prepared(whitened = gains != null, toneShare = toneShare)
+        val tone = if (smoothTone) Screentone.smooth(pixels, w, h) else null
+        if (gains != null || tone != null) bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
+        return Prepared(whitened = gains != null, tone = tone)
+    }
+
+    /** Puts the screentone's texture back into the network's [result], a band of rows at a time. */
+    private fun restoreTexture(result: Bitmap, tone: Screentone.Smoothed) {
+        val w = result.width
+        val band = IntArray(w * TEXTURE_BAND)
+        for (y in 0 until result.height step TEXTURE_BAND) {
+            val rows = minOf(TEXTURE_BAND, result.height - y)
+            result.getPixels(band, 0, w, 0, y, w, rows)
+            tone.restoreTexture(band, y, rows)
+            result.setPixels(band, 0, w, 0, y, w, rows)
+        }
     }
 
     /** Last processed page, for the settings screen ("1000×1500 in 2.1 s on the GPU, strong cleaning"). */
@@ -187,9 +200,11 @@ class PageEnhancer(
         /**
          * 1: waifu2x. 2: Real-CUGAN, SE features from 32 px samples (washed clean pages out).
          * 3: Real-CUGAN, SE features from the real tiles.
-         * 4: unresolvable screentone smoothed before the network.
+         * 4: unresolvable screentone smoothed before the network (the tone came out flat, "soapy").
+         * 5: its texture put back after the network.
          */
-        const val VERSION = 4
+        const val VERSION = 5
         const val TILE_SIZE = 200
+        const val TEXTURE_BAND = 128
     }
 }

@@ -2,9 +2,11 @@
 
 Real-CUGAN turns screentone it cannot resolve (dots of 2-4 px, blurred by the scan) into a mottled "worm"
 texture. Such tone is found by its statistics and smoothed with an edge-preserving filter before the
-network, so the network sees flat grey there and keeps the lines sharp.
+network, so the network sees flat grey there and keeps the lines sharp. What the filter took out is
+added back to the network's result, upscaled bicubically (restore()), so the tone keeps its dots.
 
 usage: tone.py <in> <out.png> [key=value ...]   (writes the smoothed page and <out>-mask.png, the half-size mask)
+       tone.py restore <in> <smoothed.png> <network result.png> <out.png>
 """
 import sys
 
@@ -117,7 +119,44 @@ def process(rgb):
     return m * b + (1 - m) * rgb, mh, True
 
 
-if __name__ == "__main__":
+def _keys(d, a=-0.5):
+    x = abs(d)
+    if x <= 1:
+        return (a + 2) * x ** 3 - (a + 3) * x ** 2 + 1
+    return a * x ** 3 - 5 * a * x ** 2 + 8 * a * x - 4 * a if x < 2 else 0.0
+
+
+# x2 bicubic: an even output pixel lies 0.75 past its second tap, an odd one 0.25
+_WEIGHTS = {0: [_keys(1.75), _keys(0.75), _keys(0.25), _keys(1.25)], 1: [_keys(1.25), _keys(0.25), _keys(0.75), _keys(1.75)]}
+
+
+def _up2(a, axis):
+    """x2 along axis with the four-tap bicubic above, edges repeated."""
+    n = a.shape[axis]
+    out_idx = np.arange(2 * n)
+    first = (out_idx + 1) // 2 - 2
+    res = 0
+    for k in range(4):
+        w = np.where(out_idx % 2 == 0, _WEIGHTS[0][k], _WEIGHTS[1][k]).astype(np.float32)
+        taps = np.clip(first + k, 0, n - 1)
+        shape = [1] * a.ndim
+        shape[axis] = 2 * n
+        res = res + w.reshape(shape) * np.take(a, taps, axis=axis)
+    return res
+
+
+def restore(result, original, smoothed, amount=1.0):
+    """result (2H x 2W x 3) + bicubic x2 of (original - smoothed), rounded like the phone."""
+    detail = original.astype(np.float32) - smoothed.astype(np.float32)
+    up = _up2(_up2(detail, 1), 0).astype(np.float32)
+    return np.clip(np.floor(result.astype(np.float32) + amount * up + 0.5), 0, 255).astype(np.uint8)
+
+
+if __name__ == "__main__" and sys.argv[1] == "restore":
+    src, sm, res, out = sys.argv[2:6]
+    load = lambda p: np.asarray(Image.open(p).convert("RGB"))
+    Image.fromarray(restore(load(res), load(src), load(sm))).save(out)
+elif __name__ == "__main__":
     src, out = sys.argv[1:3]
     for kv in sys.argv[3:]:
         k, v = kv.split("=")
