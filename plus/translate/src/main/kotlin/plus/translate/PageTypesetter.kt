@@ -14,16 +14,22 @@ import android.text.TextPaint
  */
 object PageTypesetter {
 
-    fun render(bitmap: Bitmap, regions: List<TextRegion>, language: String, fonts: LetteringFonts) {
+    /**
+     * Puts the regions onto the text found on the page ([TextPlacer]), erases the originals and
+     * sets the translations. Returns the regions as placed.
+     */
+    fun render(bitmap: Bitmap, regions: List<TextRegion>, language: String, fonts: LetteringFonts): List<TextRegion> {
         val width = bitmap.width
         val height = bitmap.height
         val pixels = IntArray(width * height)
         bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-        val letterings = PageLettering.plan(pixels, width, height, regions, language, PaintFonts(fonts))
+        val placed = TextPlacer.place(pixels, width, height, regions)
+        val letterings = PageLettering.plan(pixels, width, height, placed, language, PaintFonts(fonts))
         bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
 
         val canvas = Canvas(bitmap)
         letterings.forEach { draw(canvas, it) }
+        return placed
     }
 
     private fun draw(canvas: Canvas, lettering: PageLettering.Lettering) {

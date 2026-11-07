@@ -78,11 +78,13 @@ class PageTranslator(
             units = if (provider.type == AiProviderType.Anthropic) BoxUnits.Pixels else BoxUnits.PerMille,
         )
         val regions = result.regions
-
         val bitmap = PageBitmaps.decode(input)
         // Very large pages are decoded smaller; boxes are in original pixels
-        val scaled = if (bitmap.width == size.width) regions else regions.scaledTo(bitmap.width.toFloat() / size.width)
-        PageTypesetter.render(bitmap, scaled, s.language.code, lettering)
+        val factor = bitmap.width.toFloat() / size.width
+        val scaled = if (bitmap.width == size.width) regions else regions.scaledTo(factor)
+        // The boxes as put onto the text found on the page: kept, in the original's pixels
+        val placed = PageTypesetter.render(bitmap, scaled, s.language.code, lettering)
+            .let { if (bitmap.width == size.width) it else it.scaledTo(1 / factor) }
         val image = PageBitmaps.encode(bitmap, Bitmap.CompressFormat.JPEG, quality = 95)
         bitmap.recycle()
 
@@ -91,7 +93,7 @@ class PageTranslator(
             metadata = json.encodeToString(
                 TranslatedPage(
                     language = s.language.code,
-                    regions = regions,
+                    regions = placed,
                     model = provider.model,
                     usage = result.usage,
                     fixedLines = result.fixedLines,
@@ -153,7 +155,7 @@ class PageTranslator(
         const val MAX_MODEL_SIDE = 2048
 
         /** Bump when erasing or typesetting changes: pages already made are then drawn again. */
-        const val RENDER_VERSION = 9
+        const val RENDER_VERSION = 10
         const val MAX_MODEL_BYTES = 4 * 1024 * 1024
 
         /** Claude scales larger images down itself (about 3.75 MP); keep below to know the size. */

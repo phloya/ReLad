@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
 import plus.core.ai.AiClient
 import plus.core.ai.AiClients
+import plus.core.ai.AiEffort
 import plus.core.ai.AiImage
 import plus.core.ai.AiProviderConfig
 import plus.core.ai.AiProviderType
@@ -33,8 +34,10 @@ import javax.imageio.ImageIO
  *
  * Optional: RELAD_LIVE_KEY_FILE (default ~/.relad/anthropic.key), RELAD_LIVE_MODEL (claude-sonnet-5-5),
  * RELAD_LIVE_LANGUAGE (en), RELAD_LIVE_SOURCE (source language code), RELAD_LIVE_LIMIT (pages per chapter),
- * RELAD_LIVE_TITLE, RELAD_LIVE_PARALLEL (pages at once, as the app does; default 1). Writes each page's
- * lines and usage, the title's notes and a summary into RELAD_LIVE_OUT.
+ * RELAD_LIVE_TITLE, RELAD_LIVE_PARALLEL (pages at once, as the app does; default 1), RELAD_LIVE_EFFORT
+ * (the page request's reasoning: none, low…; default as in the app). Writes each page's lines with
+ * the model's boxes and usage, the same with the boxes put onto the text found on the page
+ * ([TextPlacer], as the app does) into placed/, the title's notes and a summary into RELAD_LIVE_OUT.
  */
 @EnabledIfEnvironmentVariable(named = "RELAD_LIVE_PAGES", matches = ".+")
 class LiveTranslationTest {
@@ -53,6 +56,7 @@ class LiveTranslationTest {
         val limit = env["RELAD_LIVE_LIMIT"]?.toInt() ?: Int.MAX_VALUE
         val title = env["RELAD_LIVE_TITLE"] ?: chapters.first().parentFile?.name ?: "Test"
         val parallel = env["RELAD_LIVE_PARALLEL"]?.toInt() ?: 1
+        val effort = env["RELAD_LIVE_EFFORT"]?.let { name -> AiEffort.entries.first { it.wire == name } }
 
         val http = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
@@ -77,7 +81,9 @@ class LiveTranslationTest {
             }
         }
         val bibles = BibleStore(File(out, "bible"))
-        val translator = PageTextTranslator(bibles)
+        val translator = if (effort == null) PageTextTranslator(bibles) else PageTextTranslator(bibles, effort)
+        val placedDir = File(out, "placed").apply { mkdirs() }
+        var placing = 0L
         val lines = sortedMapOf<String, String>()
         var input = 0L
         var cached = 0L
@@ -135,17 +141,15 @@ class LiveTranslationTest {
                                 return@launch
                             }
                             val seconds = (System.currentTimeMillis() - started) / 1000.0
-                            File(out, "$name.json").writeText(
-                                json.encodeToString(
-                                    TranslatedPage.serializer(),
-                                    TranslatedPage(
-                                        language.code,
-                                        result.regions,
-                                        model,
-                                        result.usage,
-                                        result.fixedLines,
-                                    ),
-                                ),
+                            val page =
+                                TranslatedPage(language.code, result.regions, model, result.usage, result.fixedLines)
+                            File(out, "$name.json").writeText(json.encodeToString(TranslatedPage.serializer(), page))
+                            val placeStarted = System.nanoTime()
+                            val pixels = image.getRGB(0, 0, image.width, image.height, null, 0, image.width)
+                            val placed = TextPlacer.place(pixels, image.width, image.height, result.regions)
+                            lock.withLock { placing += System.nanoTime() - placeStarted }
+                            File(placedDir, "$name.json").writeText(
+                                json.encodeToString(TranslatedPage.serializer(), page.copy(regions = placed)),
                             )
                             lock.withLock {
                                 result.usage?.let {
@@ -169,7 +173,10 @@ class LiveTranslationTest {
             }
         }
         val summary = StringBuilder(lines.values.joinToString(""))
-        summary.append("\nWALL ${(System.currentTimeMillis() - runStarted) / 1000}s, $parallel at once\n")
+        summary.append(
+            "\nWALL ${(System.currentTimeMillis() - runStarted) / 1000}s, $parallel at once, effort ${effort?.wire ?: "default"}\n",
+        )
+        summary.append("PLACING ${placing / 1_000_000} ms in all\n")
         summary.append("\nTOTAL input=$input (cached read $cached, cache write $written) output=$output\n")
         File(out, "summary.tsv").writeText(summary.toString())
     }
