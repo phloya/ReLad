@@ -28,9 +28,9 @@ class GeminiClient(
 
     override fun buildRequest(request: AiRequest, apiKey: String): Request {
         val body = buildJsonObject {
-            if (request.system != null) {
+            request.fullSystem?.let { system ->
                 putJsonObject("systemInstruction") {
-                    putJsonArray("parts") { addJsonObject { put("text", request.system) } }
+                    putJsonArray("parts") { addJsonObject { put("text", system) } }
                 }
             }
             putJsonArray("contents") {

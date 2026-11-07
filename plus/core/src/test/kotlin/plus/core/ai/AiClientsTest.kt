@@ -220,6 +220,27 @@ class AiClientsTest {
     }
 
     @Test
+    fun `the fixed beginning of the system prompt is marked for caching on Claude and joined elsewhere`() = runTest {
+        val cached = AiRequest(system = "This title's glossary", prompt = "p", stableSystem = "Fixed rules")
+
+        val anthropic = FakeServer(body = """{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}""")
+        AiClients.create(config(AiProviderType.Anthropic), "k", anthropic.client).send(cached)
+        val blocks = anthropic.json["system"]!!.jsonArray.map { it.jsonObject }
+        blocks.map { it["text"]!!.jsonPrimitive.content } shouldBe listOf("Fixed rules", "This title's glossary")
+        blocks.forEach { it["cache_control"]!!.jsonObject["type"]!!.jsonPrimitive.content shouldBe "ephemeral" }
+
+        val openAi = FakeServer(body = """{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}""")
+        AiClients.create(config(AiProviderType.OpenAiCompatible), "k", openAi.client).send(cached)
+        openAi.json["messages"]!!.jsonArray[0].jsonObject["content"]!!.jsonPrimitive.content shouldBe
+            "Fixed rules\n\nThis title's glossary"
+
+        val gemini = FakeServer(body = """{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}""")
+        AiClients.create(config(AiProviderType.Gemini), "k", gemini.client).send(cached)
+        gemini.json["systemInstruction"]!!.jsonObject["parts"]!!.jsonArray[0].jsonObject["text"]!!
+            .jsonPrimitive.content shouldBe "Fixed rules\n\nThis title's glossary"
+    }
+
+    @Test
     fun `token usage is read from all three formats`() = runTest {
         val anthropic = FakeServer(
             body = """{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn",
