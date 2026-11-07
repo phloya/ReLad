@@ -13,7 +13,13 @@ import kotlinx.serialization.json.putJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-/** Anthropic Messages API (`POST {baseUrl}/v1/messages`). Reads images, cannot return them. */
+/**
+ * Anthropic Messages API (`POST {baseUrl}/v1/messages`). Reads images, cannot return them.
+ *
+ * Newer Claude models can decline a request through safety classifiers (HTTP 200 with
+ * `stop_reason: "refusal"`). On Anthropic's own API those models get `fallbacks: "default"`:
+ * a declined request is re-run on the model Anthropic recommends for that kind of decline.
+ */
 class AnthropicClient(
     config: AiProviderConfig,
     apiKey: String?,
@@ -28,9 +34,11 @@ class AnthropicClient(
     }
 
     override fun buildRequest(request: AiRequest, apiKey: String): Request {
+        val fallback = usesServerFallback()
         val body = buildJsonObject {
             put("model", config.model)
             put("max_tokens", request.maxOutputTokens)
+            if (fallback) put("fallbacks", "default")
             if (request.system != null) put("system", request.system)
             putJsonArray("messages") {
                 addJsonObject {
@@ -58,11 +66,23 @@ class AnthropicClient(
             .url(endpoint("/v1/messages"))
             .header("x-api-key", apiKey)
             .header("anthropic-version", API_VERSION)
+            .apply { if (fallback) header("anthropic-beta", FALLBACK_BETA) }
             .post(jsonBody(body))
             .build()
     }
 
+    /** Only models that support `fallbacks: "default"`, and only on Anthropic's API (not proxies or other clouds). */
+    private fun usesServerFallback(): Boolean =
+        config.model in FALLBACK_MODELS && config.baseUrl.trimEnd('/') == AiProviderType.Anthropic.defaultBaseUrl
+
     override fun parseResponse(body: JsonObject): AiResponse {
+        if (body["stop_reason"]?.jsonPrimitive?.contentOrNull == "refusal") {
+            val category = (body["stop_details"] as? JsonObject)?.get("category")?.jsonPrimitive?.contentOrNull
+            throw AiException(
+                "${config.name}: Claude declined the request" + (category?.let { " ($it)" } ?: ""),
+                AiException.Kind.BadResponse,
+            )
+        }
         val text = (body["content"] as? JsonArray).orEmpty()
             .map { it.jsonObject }
             .filter { it["type"]?.jsonPrimitive?.contentOrNull == "text" }
@@ -78,5 +98,9 @@ class AnthropicClient(
 
     companion object {
         const val API_VERSION = "2023-06-01"
+        const val FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+        /** Models that accept `fallbacks: "default"` (checked 2026-11-07). */
+        val FALLBACK_MODELS = setOf("claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5")
     }
 }
