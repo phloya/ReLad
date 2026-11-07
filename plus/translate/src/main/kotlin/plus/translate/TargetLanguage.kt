@@ -20,8 +20,6 @@ data class TargetLanguage(
                 "uz",
                 "Oʻzbekcha",
                 "Uzbek (Latin script)",
-                "Use the modern Uzbek Latin alphabet with the letters oʻ and gʻ written with the " +
-                    "turned comma ʻ (U+02BB) and the tutuq belgisi ʼ (U+02BC), not apostrophes.",
             ),
             TargetLanguage(
                 "kk",

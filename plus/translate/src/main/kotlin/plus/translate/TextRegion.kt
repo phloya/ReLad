@@ -36,6 +36,8 @@ data class TextRegion(
     val box: Box,
     val text: String,
     val translation: String,
+    /** Original name of who says it, when the model was sure (bubble tail, face, panel). */
+    val speaker: String? = null,
 )
 
 @Serializable
@@ -66,9 +68,40 @@ data class Box(val left: Int, val top: Int, val right: Int, val bottom: Int) {
     }
 }
 
-/** What the translator stores next to a translated page (for a future "show original" overlay). */
+/**
+ * What the translator stores next to a translated page: the lines (for a future "show original"
+ * overlay) and what the page cost, for the chapter's price in the app.
+ */
 @Serializable
 data class TranslatedPage(
     val language: String,
     val regions: List<TextRegion>,
+    val model: String = "",
+    val usage: PageUsage? = null,
+    /** Lines the checks sent back for a second look. */
+    val fixedLines: Int = 0,
 )
+
+/** Tokens all requests for one page used (the translation and, if needed, the second look). */
+@Serializable
+data class PageUsage(
+    val inputTokens: Long,
+    val cachedInputTokens: Long,
+    val cacheWriteTokens: Long,
+    val outputTokens: Long,
+    val reportedCostUsd: Double? = null,
+) {
+    companion object {
+        fun of(usage: List<plus.core.ai.AiUsage>): PageUsage? = if (usage.isEmpty()) {
+            null
+        } else {
+            PageUsage(
+                inputTokens = usage.sumOf { it.inputTokens },
+                cachedInputTokens = usage.sumOf { it.cachedInputTokens },
+                cacheWriteTokens = usage.sumOf { it.cacheWriteTokens },
+                outputTokens = usage.sumOf { it.outputTokens },
+                reportedCostUsd = usage.mapNotNull { it.reportedCostUsd }.takeIf { it.size == usage.size }?.sum(),
+            )
+        }
+    }
+}
