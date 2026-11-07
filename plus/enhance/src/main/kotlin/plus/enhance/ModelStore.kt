@@ -36,6 +36,12 @@ class ModelStore(private val dir: File, private val client: OkHttpClient) {
         File(dir, model.id).deleteRecursively()
     }
 
+    /** Deletes downloaded models that are not in [keep]: ones an older version used. */
+    fun removeOthers(keep: Collection<EnhanceModel>) {
+        val ids = keep.map { it.id }.toSet()
+        dir.listFiles()?.filter { it.isDirectory && it.name !in ids }?.forEach { it.deleteRecursively() }
+    }
+
     fun sizeBytes(): Long = dir.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
 
     private fun file(model: EnhanceModel, modelFile: ModelFile) =

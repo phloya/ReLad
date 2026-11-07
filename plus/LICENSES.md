@@ -24,14 +24,14 @@
 
 | Модель | Для чего | Источник | Лицензия весов | Датасет и его условия | Коммерческое использование | Указание автора |
 |---|---|---|---|---|---|---|
-| waifu2x CUnet ×2, шумоподавление 0–3 (`noise*_scale2.0x_model`) | Улучшение сканов (`plus/enhance`) | Веса nagadomi/waifu2x, конвертация в ncnn — nihui/waifu2x-ncnn-vulkan, коммит `64914665c4…` | MIT | Обучена автором waifu2x на аниме-иллюстрациях; отдельных условий нет | Да | В экране «О приложении»/лицензиях: waifu2x © nagadomi, waifu2x-ncnn-vulkan © nihui |
+| Real-CUGAN se ×2: conservative, denoise1x, denoise2x, denoise3x (`up2x-*`) | Улучшение сканов (`plus/enhance`) | Веса bilibili/ailab (Real-CUGAN), конвертация в ncnn — nihui/realcugan-ncnn-vulkan, коммит `395302c5c7…` | MIT (bilibili) | «Миллионный датасет аниме-картинок» bilibili, состав и условия не опубликованы — вопрос в FOR_ME | Да (по лицензии весов) | В списке лицензий приложения: Real-CUGAN © bilibili, realcugan-ncnn-vulkan © nihui |
 
 ## Библиотеки с нативным кодом
 
 | Что | Для чего | Источник | Лицензия | Обязательства |
 |---|---|---|---|---|
 | ncnn 20260526 (сборка android-vulkan) | Запуск нейросетей на видеочипе (`plus/enhance`) | https://github.com/Tencent/ncnn | BSD-3-Clause (+ glslang BSD/Apache-2.0 внутри) | Сохранять уведомление об авторстве в списке лицензий приложения |
-| Схема разбиения на кусочки и имена слоёв CUnet в `upscaler_jni.cpp` | Улучшение сканов | https://github.com/nihui/waifu2x-ncnn-vulkan | MIT | Код написан заново, указание авторства — в шапке файла |
+| Схема разбиения на кусочки, имена слоёв и идея общих SE-признаков в `upscaler_jni.cpp` | Улучшение сканов | https://github.com/nihui/realcugan-ncnn-vulkan, https://github.com/nihui/waifu2x-ncnn-vulkan | MIT | Код написан заново, указание авторства — в шапке файла |
 
 ## Шрифты
 

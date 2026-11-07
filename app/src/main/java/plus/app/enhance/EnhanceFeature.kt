@@ -17,6 +17,7 @@ import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.PreferenceScreen
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.R
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import plus.app.Plus
 import plus.app.PlusFeature
@@ -27,6 +28,7 @@ import plus.enhance.EnhanceModels
 import plus.enhance.ModelStore
 import plus.enhance.NativeUpscaler
 import plus.enhance.PageEnhancer
+import plus.enhance.Strength
 import tachiyomi.presentation.core.util.collectAsState
 import java.io.File
 
@@ -44,12 +46,16 @@ object EnhanceFeature : PlusFeature {
         settings = {
             val prefs = EnhancePreferences(graph)
             PageEnhancer.Settings(
-                model = prefs.model(),
+                strength = prefs.fixedStrength(),
+                whitenPaper = prefs.whitenPaper.get(),
                 useGpu = prefs.useGpu.get(),
                 maxInputSide = prefs.maxInputSide.get(),
             )
         },
-        store = store(graph),
+        store = store(graph).also { store ->
+            // Models an older version used (waifu2x until 0.2) only take space
+            graph.scope.launch(Dispatchers.IO) { store.removeOthers(EnhanceModels.all) }
+        },
     ).also { enhancer = it }
 
     internal val lastRun get() = enhancer?.lastRun
@@ -60,15 +66,23 @@ object EnhanceFeature : PlusFeature {
 internal class EnhancePreferences(graph: PlusGraph) {
     private val prefs = graph.preferences
     val enabled = prefs.featureEnabled(EnhanceFeature.id)
-    val denoise = prefs.int(EnhanceFeature.id, "denoise", 1)
+
+    /** [AUTO] or a [Strength] name. */
+    val strength = prefs.string(EnhanceFeature.id, "strength", AUTO)
+    val whitenPaper = prefs.boolean(EnhanceFeature.id, "whiten_paper", true)
     val useGpu = prefs.boolean(EnhanceFeature.id, "gpu", true)
     val maxInputSide = prefs.int(EnhanceFeature.id, "max_side", 2200)
     val allowNonCommercial = prefs.boolean(EnhanceFeature.id, "non_commercial", false)
 
-    fun model(): EnhanceModel {
-        val available = EnhanceModels.available(allowNonCommercial.get())
-        return EnhanceModels.cunetByNoise.getOrNull(denoise.get())?.takeIf { it in available }
-            ?: available.first()
+    /** `null` for automatic. */
+    fun fixedStrength(): Strength? = Strength.entries.firstOrNull { it.name == strength.get() }
+
+    /** Models the current setting may use: all strengths in automatic mode. */
+    fun models(): List<EnhanceModel> = fixedStrength()?.let { listOf(EnhanceModels.cugan.getValue(it)) }
+        ?: EnhanceModels.cugan.values.toList()
+
+    companion object {
+        const val AUTO = "auto"
     }
 }
 
@@ -82,11 +96,12 @@ class EnhanceSettingsScreen : Screen() {
         val graph = remember { Plus.graph(context) }
         val prefs = remember { EnhancePreferences(graph) }
         val store = remember { EnhanceFeature.store(graph) }
-        val denoise by prefs.denoise.collectAsState()
-        val model = remember(denoise) { prefs.model() }
-        var downloadState by remember(model) {
+        val strength by prefs.strength.collectAsState()
+        val models = remember(strength) { prefs.models() }
+        val model = models.first()
+        var downloadState by remember(models) {
             mutableStateOf<String?>(
-                if (store.isDownloaded(model)) context.getString(R.string.plus_enhance_model_ready) else null,
+                if (models.all(store::isDownloaded)) context.getString(R.string.plus_enhance_model_ready) else null,
             )
         }
         val gpuName = remember { runCatching { NativeUpscaler.gpuName }.getOrNull() }
@@ -104,14 +119,21 @@ class EnhanceSettingsScreen : Screen() {
                         subtitle = stringResource(R.string.plus_feature_enhance_summary),
                     ),
                     Preference.PreferenceItem.ListPreference(
-                        preference = prefs.denoise,
+                        preference = prefs.strength,
                         entries = mapOf(
-                            0 to stringResource(R.string.plus_enhance_denoise_0),
-                            1 to stringResource(R.string.plus_enhance_denoise_1),
-                            2 to stringResource(R.string.plus_enhance_denoise_2),
-                            3 to stringResource(R.string.plus_enhance_denoise_3),
+                            EnhancePreferences.AUTO to stringResource(R.string.plus_enhance_strength_auto),
+                            Strength.Conservative.name to stringResource(R.string.plus_enhance_strength_conservative),
+                            Strength.Light.name to stringResource(R.string.plus_enhance_strength_light),
+                            Strength.Medium.name to stringResource(R.string.plus_enhance_strength_medium),
+                            Strength.Strong.name to stringResource(R.string.plus_enhance_strength_strong),
                         ),
-                        title = stringResource(R.string.plus_enhance_denoise),
+                        title = stringResource(R.string.plus_enhance_strength),
+                        subtitle = "%s\n" + stringResource(R.string.plus_enhance_strength_summary),
+                    ),
+                    Preference.PreferenceItem.SwitchPreference(
+                        preference = prefs.whitenPaper,
+                        title = stringResource(R.string.plus_enhance_whiten),
+                        subtitle = stringResource(R.string.plus_enhance_whiten_summary),
                     ),
                     Preference.PreferenceItem.ListPreference(
                         preference = prefs.maxInputSide,
@@ -133,9 +155,8 @@ class EnhanceSettingsScreen : Screen() {
                         title = stringResource(R.string.plus_enhance_model) + ": " + model.name,
                         subtitle = stringResource(
                             R.string.plus_enhance_model_info,
-                            model.id,
                             model.license.name,
-                            Formatter.formatShortFileSize(context, model.downloadBytes),
+                            Formatter.formatShortFileSize(context, models.sumOf { it.downloadBytes }),
                         ) + (downloadState?.let { "\n$it" } ?: ""),
                     ),
                     Preference.PreferenceItem.TextPreference(
@@ -144,14 +165,14 @@ class EnhanceSettingsScreen : Screen() {
                             downloadState = context.getString(R.string.plus_enhance_downloading)
                             scope.launch {
                                 downloadState = try {
-                                    store.get(model)
+                                    models.forEach { store.get(it) }
                                     context.getString(R.string.plus_enhance_model_ready)
                                 } catch (e: Exception) {
                                     context.getString(R.string.plus_enhance_download_failed, e.message)
                                 }
                             }
                         },
-                    ).takeIf { !store.isDownloaded(model) },
+                    ).takeIf { !models.all(store::isDownloaded) },
                     Preference.PreferenceItem.SwitchPreference(
                         preference = prefs.allowNonCommercial,
                         title = stringResource(R.string.plus_enhance_non_commercial),
@@ -167,7 +188,13 @@ class EnhanceSettingsScreen : Screen() {
                                 stringResource(
                                     if (it.gpu) R.string.plus_enhance_on_gpu else R.string.plus_enhance_on_cpu,
                                 ),
-                            ),
+                                stringResource(strengthName(it.strength)).lowercase(),
+                            ) +
+                                (
+                                    it.jpegQuality?.let { q -> stringResource(R.string.plus_enhance_last_run_jpeg, q) }
+                                        ?: ""
+                                    ) +
+                                (if (it.whitened) stringResource(R.string.plus_enhance_last_run_whitened) else ""),
                         )
                     },
                     Preference.PreferenceItem.InfoPreference(stringResource(R.string.plus_enhance_how)),
@@ -175,4 +202,11 @@ class EnhanceSettingsScreen : Screen() {
             )
         }
     }
+}
+
+private fun strengthName(strength: Strength) = when (strength) {
+    Strength.Conservative -> R.string.plus_enhance_strength_conservative
+    Strength.Light -> R.string.plus_enhance_strength_light
+    Strength.Medium -> R.string.plus_enhance_strength_medium
+    Strength.Strong -> R.string.plus_enhance_strength_strong
 }

@@ -1,25 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="plus_enhance_denoise">Убирать шум и артефакты JPEG</string>
-    <string name="plus_enhance_denoise_0">Нет (только увеличить)</string>
-    <string name="plus_enhance_denoise_1">Слабо</string>
-    <string name="plus_enhance_denoise_2">Средне</string>
-    <string name="plus_enhance_denoise_3">Сильно</string>
+    <string name="plus_enhance_strength">Сила очистки</string>
+    <string name="plus_enhance_strength_summary">Насколько сильно убирать шум и квадратики JPEG. Сильнее — чище, но может сгладить мелкий растр</string>
+    <string name="plus_enhance_strength_auto">Автоматически, по тому, как сжата страница</string>
+    <string name="plus_enhance_strength_conservative">Бережно</string>
+    <string name="plus_enhance_strength_light">Слабо</string>
+    <string name="plus_enhance_strength_medium">Средне</string>
+    <string name="plus_enhance_strength_strong">Сильно</string>
+    <string name="plus_enhance_whiten">Белая бумага</string>
+    <string name="plus_enhance_whiten_summary">Делает серую или пожелтевшую бумагу белой на чёрно-белых страницах. Цветные страницы не меняются</string>
     <string name="plus_enhance_max_side">Увеличивать страницы меньше</string>
     <string name="plus_enhance_max_side_value">%1$d px по длинной стороне</string>
     <string name="plus_enhance_gpu">Использовать видеочип (Vulkan)</string>
     <string name="plus_enhance_gpu_found">Найден: %1$s. Намного быстрее процессора</string>
     <string name="plus_enhance_gpu_missing">Видеочип с Vulkan не найден: работает процессор, это медленнее</string>
     <string name="plus_enhance_model">Модель</string>
-    <string name="plus_enhance_model_info">%1$s, лицензия: %2$s. Скачивание: %3$s, один раз; хранится на телефоне</string>
+    <string name="plus_enhance_model_info">Лицензия: %1$s. Скачивание: %2$s, один раз; хранится на телефоне</string>
     <string name="plus_enhance_model_ready">Скачана</string>
     <string name="plus_enhance_download">Скачать модель сейчас</string>
     <string name="plus_enhance_downloading">Скачиваю…</string>
     <string name="plus_enhance_download_failed">Не удалось скачать: %1$s</string>
     <string name="plus_enhance_non_commercial">Показывать модели с некоммерческой лицензией</string>
     <string name="plus_enhance_non_commercial_summary">Некоторые хорошие модели можно использовать только бесплатно. По умолчанию они выключены и никогда не входят в платную версию</string>
-    <string name="plus_enhance_last_run">Последняя страница: %1$d×%2$d за %3$.1f с на %4$s</string>
+    <string name="plus_enhance_last_run">Последняя страница: %1$d×%2$d за %3$.1f с на %4$s, очистка: %5$s</string>
+    <string name="plus_enhance_last_run_jpeg">, качество JPEG %1$d %%</string>
+    <string name="plus_enhance_last_run_whitened">, бумага выбелена</string>
     <string name="plus_enhance_on_gpu">видеочипе</string>
     <string name="plus_enhance_on_cpu">процессоре</string>
-    <string name="plus_enhance_how">Страница очищается от шума и увеличивается ×2 нейросетью прямо на телефоне, без интернета. Улучшенные страницы сохраняются, повторное чтение мгновенное.</string>
+    <string name="plus_enhance_how">Страница очищается от шума и квадратиков JPEG и увеличивается ×2 нейросетью (Real-CUGAN) прямо на телефоне, без интернета. Улучшенные страницы сохраняются, повторное чтение мгновенное.</string>
 </resources>

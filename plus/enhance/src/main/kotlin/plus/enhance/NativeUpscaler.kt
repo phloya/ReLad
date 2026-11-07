@@ -61,6 +61,10 @@ class NativeUpscaler private constructor(private var handle: Long, val scale: In
                 model.prepadding,
                 tileSize,
                 useGpu,
+                model.inputBlob,
+                model.outputBlob,
+                model.sharedBlobs.toTypedArray(),
+                model.reflectBorder,
             )
             if (handle == 0L) throw UpscaleException("Could not load the model ${model.id}")
             return NativeUpscaler(handle, model.scale)
@@ -70,13 +74,19 @@ class NativeUpscaler private constructor(private var handle: Long, val scale: In
 
         @JvmStatic private external fun nativeGpuName(): String?
 
-        @JvmStatic private external fun nativeCreate(
+        @Suppress("LongParameterList")
+        @JvmStatic
+        private external fun nativeCreate(
             paramPath: String,
             modelPath: String,
             scale: Int,
             prepadding: Int,
             tileSize: Int,
             useGpu: Boolean,
+            inputBlob: String,
+            outputBlob: String,
+            sharedBlobs: Array<String>,
+            reflectBorder: Boolean,
         ): Long
 
         @JvmStatic private external fun nativeUsesGpu(handle: Long): Boolean

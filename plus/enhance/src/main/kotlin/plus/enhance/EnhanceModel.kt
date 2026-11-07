@@ -8,12 +8,19 @@ data class EnhanceModel(
     val id: String,
     /** Shown in settings. */
     val name: String,
+    val strength: Strength,
     val scale: Int,
     /** Border each tile needs so its edges come out right (depends on the network). */
     val prepadding: Int,
     val param: ModelFile,
     val weights: ModelFile,
     val license: ModelLicense,
+    val inputBlob: String,
+    val outputBlob: String,
+    /** Blobs averaged over the whole input (SE blocks): computed once per page and shared by all tiles. */
+    val sharedBlobs: List<String> = emptyList(),
+    /** Mirror the page at its edges (otherwise repeat the edge pixels). */
+    val reflectBorder: Boolean = true,
 ) {
     val downloadBytes: Long get() = param.size + weights.size
 }
@@ -27,40 +34,65 @@ data class ModelLicense(
     val commercialUse: Boolean,
 )
 
+/** How hard the model cleans: stronger removes more noise and JPEG blocks, but also more fine detail. */
+enum class Strength {
+    /** Keeps the most of the original; for clean scans that are only small. */
+    Conservative,
+    Light,
+    Medium,
+
+    /** For heavily compressed scans: makes the paper white and the lines clean. */
+    Strong,
+}
+
 object EnhanceModels {
 
-    /** waifu2x-ncnn-vulkan at the commit whose models were checked (MIT, 2026-04-13). */
-    private const val WAIFU2X_COMMIT = "64914665c45893135c9e50c1c296170a121b9f77"
-    private const val WAIFU2X_BASE =
-        "https://raw.githubusercontent.com/nihui/waifu2x-ncnn-vulkan/$WAIFU2X_COMMIT/models/models-cunet"
-    private const val CUNET_PARAM_SHA = "ccc3b2f1c9fad829ecdda40cac8dc853fcddf14917170efba888b256fbf9074a"
+    /** realcugan-ncnn-vulkan at the commit whose models were checked (MIT, nihui; last change to the models 2022-02-15). */
+    private const val CUGAN_COMMIT = "395302c5c70f1bff604c974e92e0a87e45c9f9ee"
+    private const val CUGAN_BASE =
+        "https://raw.githubusercontent.com/nihui/realcugan-ncnn-vulkan/$CUGAN_COMMIT/models/models-se"
 
-    private val waifu2xLicense = ModelLicense(
-        name = "MIT (waifu2x, nagadomi; ncnn conversion, nihui)",
-        url = "https://github.com/nihui/waifu2x-ncnn-vulkan/blob/master/LICENSE",
+    /** The same network description for every strength. */
+    private const val CUGAN_PARAM_SHA = "4b3b5c5710ad1d00503c8243417aa75f13fe497723e8b4952e8b1abfc08f9b84"
+
+    private val cuganLicense = ModelLicense(
+        name = "MIT (Real-CUGAN, bilibili; ncnn conversion, nihui)",
+        url = "https://github.com/bilibili/ailab/blob/main/Real-CUGAN/LICENSE",
         commercialUse = true,
     )
 
-    private fun cunet(noise: Int, weightsSha: String) = EnhanceModel(
-        id = "waifu2x-cunet-2x-noise$noise",
-        name = "waifu2x CUnet ×2",
+    private fun cugan(strength: Strength, file: String, weightsSha: String) = EnhanceModel(
+        id = "realcugan-se-$file",
+        name = "Real-CUGAN ×2",
+        strength = strength,
         scale = 2,
         prepadding = 18,
-        param = ModelFile("$WAIFU2X_BASE/noise${noise}_scale2.0x_model.param", CUNET_PARAM_SHA, 7_249),
-        weights = ModelFile("$WAIFU2X_BASE/noise${noise}_scale2.0x_model.bin", weightsSha, 2_776_400),
-        license = waifu2xLicense,
+        param = ModelFile("$CUGAN_BASE/$file.param", CUGAN_PARAM_SHA, 4_761),
+        weights = ModelFile("$CUGAN_BASE/$file.bin", weightsSha, 2_573_648),
+        license = cuganLicense,
+        inputBlob = "in0",
+        outputBlob = "out0",
+        sharedBlobs = listOf("gap0", "gap1", "gap2", "gap3"),
+        reflectBorder = true,
     )
 
-    /** Denoise level 0–3 → model. waifu2x was made for anime and manga art. */
-    val cunetByNoise: List<EnhanceModel> = listOf(
-        cunet(0, "5329a9375c9cfb64a60a2903fd8ae6e2851d9b069556bf025dbab9d0216fb27c"),
-        cunet(1, "862c0e40f3df956ff57bd4d168c85dea5d375b614077fdddd3ac8cfdb9a686da"),
-        cunet(2, "5c836e6ae022636cdd5590fbb66dbca2a5fc20bbf8e628884c3612ef72d51858"),
-        cunet(3, "f42c18610fecb14a40f75cca9b9276a6889689d5937a4f75f0c2b21bde7e49ed"),
-    )
+    /**
+     * Real-CUGAN: made for anime and manga, trained on real-world damage (blur, noise, JPEG).
+     * Chosen over waifu2x CUnet and Real-ESRGAN after a side-by-side test, see plus/DECISIONS.md.
+     */
+    val cugan: Map<Strength, EnhanceModel> = listOf(
+        cugan(
+            Strength.Conservative,
+            "up2x-conservative",
+            "91c72c136e7ff8556323d4449c5ceeff22d9829bf8463a01137cadb8d59b84a0",
+        ),
+        cugan(Strength.Light, "up2x-denoise1x", "09373c4fddfd2a57fb4af5e516eba1b4c9caa132fd52ffd01bcaefee543bf7f6"),
+        cugan(Strength.Medium, "up2x-denoise2x", "47427a52badebfbd7bb6db97196a2844c553f7f2bb93c9527b26347bea0430e7"),
+        cugan(Strength.Strong, "up2x-denoise3x", "610ebae63f388fe6f39615cc5f4eaeb038d5aa6ba8b299ba3b989f7f7a1a280a"),
+    ).associateBy { it.strength }
 
     /** Every model Re:Lad knows. Non-commercial ones would be listed here too, marked in [ModelLicense]. */
-    val all: List<EnhanceModel> = cunetByNoise
+    val all: List<EnhanceModel> = cugan.values.toList()
 
     /** Models the user may pick: non-commercial ones only after an explicit opt-in. */
     fun available(allowNonCommercial: Boolean): List<EnhanceModel> =

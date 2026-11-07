@@ -45,11 +45,14 @@ class ModelStoreTest {
     private fun model(weightsSha: String = sha(weightBytes)) = EnhanceModel(
         id = "test-model",
         name = "Test",
+        strength = Strength.Medium,
         scale = 2,
         prepadding = 18,
         param = ModelFile("https://example.com/m.param", sha(paramBytes), paramBytes.size.toLong()),
         weights = ModelFile("https://example.com/m.bin", weightsSha, weightBytes.size.toLong()),
         license = ModelLicense("MIT", "https://example.com", commercialUse = true),
+        inputBlob = "in0",
+        outputBlob = "out0",
     )
 
     private val served = mapOf("https://example.com/m.param" to paramBytes, "https://example.com/m.bin" to weightBytes)
@@ -82,5 +85,17 @@ class ModelStoreTest {
         val store = ModelStore(dir, client(emptyMap()))
 
         shouldThrow<ModelStore.ModelDownloadException> { store.get(model()) }
+    }
+
+    @Test
+    fun `models no longer in the list are removed, current ones kept`() = runTest {
+        val store = ModelStore(dir, client(served))
+        store.get(model())
+        File(dir, "waifu2x-old").apply { mkdirs() }.resolve("m.bin").writeBytes(ByteArray(10))
+
+        store.removeOthers(listOf(model()))
+
+        File(dir, "waifu2x-old").exists() shouldBe false
+        store.isDownloaded(model()) shouldBe true
     }
 }

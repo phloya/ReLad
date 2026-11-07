@@ -27,8 +27,13 @@ class EnhanceModelsTest {
     }
 
     @Test
-    fun `four denoise levels`() {
-        EnhanceModels.cunetByNoise.map { it.id } shouldBe (0..3).map { "waifu2x-cunet-2x-noise$it" }
-        EnhanceModels.cunetByNoise.all { it.scale == 2 } shouldBe true
+    fun `a model for every strength, all x2 with shared SE features`() {
+        EnhanceModels.cugan.keys shouldBe Strength.entries.toSet()
+        EnhanceModels.cugan.forEach { (strength, model) ->
+            model.strength shouldBe strength
+            model.scale shouldBe 2
+            model.sharedBlobs shouldBe listOf("gap0", "gap1", "gap2", "gap3")
+        }
+        EnhanceModels.all.map { it.id }.toSet() shouldHaveSize 4
     }
 }
