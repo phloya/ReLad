@@ -229,8 +229,14 @@ object BubbleEraser {
         // Light letters on dark art (title pages, narration over a scene): no bubble to erase
         val textArea = (textBox.width.toLong() * textBox.height).coerceAtLeast(1)
         val lightInBox = countLight(light, area, textBox)
-        // (mostly dark box, and the light found is smaller than the box: letters, not a bubble)
-        if (lightInBox < textArea * MIN_LIGHT_SHARE && count < textArea) return Result(null, WHITE, onArt = true)
+        // (mostly dark box, and the light found is smaller than the box: letters, not a bubble).
+        // A small spiky bubble among the art is mostly dark in its box too, but it is closed and
+        // holds several small dark letters; a light letter holds a counter or two, and big ones
+        if (lightInBox < textArea * MIN_LIGHT_SHARE && count < textArea &&
+            !(enclosed && holdsLetters(inside, filled, areaWidth, count))
+        ) {
+            return Result(null, WHITE, onArt = true)
+        }
 
         // This text's own part of the bubble, row by row: the run of the inside that holds the
         // text's middle. Two joined bubbles side by side are two runs, split by their shared line
@@ -356,6 +362,42 @@ object BubbleEraser {
         return histogram.size - 1
     }
 
+    /**
+     * The light area [filled] (of [count] pixels) encloses several small dark spots: a bubble's
+     * letters. Specks of a pixel or two are noise; a spot this big against the area is a letter's
+     * counter (the light area is then a light letter itself).
+     */
+    private fun holdsLetters(inside: BooleanArray, filled: BooleanArray, areaWidth: Int, count: Int): Boolean {
+        val seen = BooleanArray(inside.size)
+        val stack = IntArrayStack()
+        var spots = 0
+        for (seed in inside.indices) {
+            if (!inside[seed] || filled[seed] || seen[seed]) continue
+            seen[seed] = true
+            stack.push(seed)
+            var size = 0
+            while (stack.isNotEmpty()) {
+                val i = stack.pop()
+                size++
+                val x = i % areaWidth
+                for (n in intArrayOf(i - 1, i + 1, i - areaWidth, i + areaWidth)) {
+                    if (n < 0 || n >= inside.size || (n == i - 1 && x == 0) ||
+                        (n == i + 1 && x == areaWidth - 1)
+                    ) {
+                        continue
+                    }
+                    if (inside[n] && !filled[n] && !seen[n]) {
+                        seen[n] = true
+                        stack.push(n)
+                    }
+                }
+            }
+            if (size > count * MAX_LETTER_SPOT) return false
+            if (size >= MIN_LETTER_SPOT) spots++
+        }
+        return spots >= MIN_LETTER_SPOTS
+    }
+
     /** Light pixels of [box] inside the search [area]. */
     private fun countLight(light: BooleanArray, area: Box, box: Box): Long {
         var n = 0L
@@ -465,6 +507,13 @@ object BubbleEraser {
 
     /** A text box with less light than this (share) and no bubble around is light text on dark art. */
     private const val MIN_LIGHT_SHARE = 0.45
+
+    /** A small bubble among the art: its light area encloses at least this many dark spots of a few pixels... */
+    private const val MIN_LETTER_SPOTS = 3
+    private const val MIN_LETTER_SPOT = 4
+
+    /** ...and none this big against the light area (a light letter's counter is). */
+    private const val MAX_LETTER_SPOT = 0.2
 
     /** A closed light area this many times larger than the text box is art, not a bubble. */
     private const val MAX_BUBBLE_TO_TEXT = 16

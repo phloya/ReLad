@@ -47,10 +47,18 @@ object PageLettering {
         log: ((String) -> Unit)? = null,
     ): List<Lettering> {
         val locale = Locale.forLanguageTag(language)
-        val own = ownBoxes(regions)
+        // Only dots and marks (……!!): nothing to translate, the original stays as drawn
+        val own = ownBoxes(regions.filterNot { wordless(it.text) })
+        val inPlace = own.map { region ->
+            if (region.type == RegionType.Bubble) bubbleInk(pixels, width, height, region.box) else null
+        }
+        // The letters' size on this page, from the bubbles the model placed well: "letters" found
+        // much bigger than that are art (an eye on a white panel), not a bubble's text
+        val pageCore = inPlace.mapNotNull { it?.core }.sorted()
+            .takeIf { it.size >= MIN_PAGE_CORES }?.let { it[it.size / 2] }
         // Bubbles the model put beside their letters are moved onto them first
         val placed = own.mapIndexed { i, region ->
-            if (region.type != RegionType.Bubble || inBubble(pixels, width, height, region.box)) {
+            if (region.type != RegionType.Bubble || inPlace[i] != null) {
                 region
             } else {
                 val others = own.filterIndexed { j, _ -> j != i }.map { it.box }
@@ -61,6 +69,7 @@ object PageLettering {
                     .take(MAX_SNAP_TRIES)
                     .firstNotNullOfOrNull { candidate ->
                         bubbleLetters(pixels, width, height, candidate)
+                            ?.takeIf { pageCore == null || it.core <= pageCore * MAX_SNAP_CORE }?.box
                             ?.takeIf { found -> others.none { share(found, it) >= OTHERS_LETTERS } }
                     }
                 when {
@@ -78,14 +87,15 @@ object PageLettering {
         if (log != null) {
             plans.forEach { p ->
                 val b = p.bubble
-                val s = p.sfx
+                val s = p.sfx ?: p.art
                 log(
                     "${p.region.type} ${p.region.box} '${p.region.text.take(20)}' whole=${b?.rows != null} " +
                         "onArt=${b?.onArt} cover=${b?.coverage} floating=${p.floating} " +
                         "ink=${p.ink?.box} lines=${p.ink?.lines} core=${p.ink?.core} size=${p.size}" +
                         (
                             s?.let {
-                                " letters: light=${it.light} pieces=${it.pieces} height=${it.letterHeight} " +
+                                " ${if (p.art != null) "art" else "letters"}: light=${it.light} " +
+                                    "pieces=${it.pieces} height=${it.letterHeight} " +
                                     "length=${it.length} angle=${it.angle} edge=${it.edgeWidth} stroke=${it.stroke}"
                             } ?: ""
                             ),
@@ -96,17 +106,21 @@ object PageLettering {
         // 2. Erase
         plans.forEach { plan ->
             val bubble = plan.bubble ?: return@forEach
-            if (plan.floating) return@forEach
+            if (plan.floating || plan.art != null) return@forEach
             if (bubble.onArt) {
-                val ink = plan.ink ?: return@forEach
-                val outline = (ink.core * OUTLINE_SEARCH).toInt().coerceAtLeast(2)
+                // Letters not measured: the model's box, with as thick an outline and margin as letters ever have
+                val ink = plan.ink
+                val core = ink?.core ?: Float.MAX_VALUE
+                // (hatched art read as letters gives a huge band: an outline is never that thick)
+                val outline = minOf(core * OUTLINE_SEARCH, width * MAX_ART_OUTLINE).toInt().coerceAtLeast(2)
                 // The letters found and the model's box: a line's ends and a capital's top are easy to miss
+                val inkBox = ink?.box ?: plan.region.box
                 val box = Box(
-                    minOf(ink.box.left, plan.region.box.left),
-                    minOf(ink.box.top, plan.region.box.top),
-                    maxOf(ink.box.right, plan.region.box.right),
-                    maxOf(ink.box.bottom, plan.region.box.bottom),
-                ).grown((ink.core * ART_CLEAN_MARGIN).toInt(), width, height)
+                    minOf(inkBox.left, plan.region.box.left),
+                    minOf(inkBox.top, plan.region.box.top),
+                    maxOf(inkBox.right, plan.region.box.right),
+                    maxOf(inkBox.bottom, plan.region.box.bottom),
+                ).grown(minOf(core * ART_CLEAN_MARGIN, width * MAX_ART_MARGIN).toInt(), width, height)
                 ArtCleaner.clean(pixels, width, height, box, outline)
             } else {
                 BubbleEraser.paint(pixels, width, bubble)
@@ -114,7 +128,7 @@ object PageLettering {
         }
         // Sound effects' letters: the art behind them is drawn on from the art around (no letters
         // copied in from another sound effect)
-        val drawn = plans.mapNotNull { it.sfx }
+        val drawn = plans.mapNotNull { it.sfx ?: it.art }
         if (drawn.isNotEmpty()) {
             val letters = BooleanArray(width * height)
             for (sfx in drawn) {
@@ -164,6 +178,9 @@ object PageLettering {
         return overlap.toFloat() / (b.width.toLong() * b.height).coerceAtLeast(1)
     }
 
+    /** No word in [text]: dots, marks, a cut-off breath (……ッ!!). */
+    private fun wordless(text: String) = text.none { it.isLetterOrDigit() && it !in CUT_OFF }
+
     /**
      * Each text's own box: a box that holds another text's box as well (two texts in one bubble,
      * one boxed with the whole bubble) is cut down to its largest part beside the other text.
@@ -202,9 +219,9 @@ object PageLettering {
         }
     }
 
-    /** [box] has dark letters in it and sits in a closed bubble. */
-    private fun inBubble(pixels: IntArray, width: Int, height: Int, box: Box): Boolean {
-        val bubble = closedBubble(pixels, width, height, box) ?: return false
+    /** The dark letters in [box] when it lies in a closed bubble, or `null`. */
+    private fun bubbleInk(pixels: IntArray, width: Int, height: Int, box: Box): InkMeasure.Ink? {
+        val bubble = closedBubble(pixels, width, height, box) ?: return null
         val ink = InkMeasure.measure(
             pixels,
             width,
@@ -214,11 +231,11 @@ object PageLettering {
             vertical = false,
             inside = bubble.room,
         )
-        return ink != null && ink.core >= MIN_CORE && ink.core <= height * MAX_CORE
+        return ink?.takeIf { it.core >= MIN_CORE && it.core <= height * MAX_CORE }
     }
 
     /** The letters of the closed bubble [box] lies in, or `null` if it lies in none (or one without letters). */
-    private fun bubbleLetters(pixels: IntArray, width: Int, height: Int, box: Box): Box? {
+    private fun bubbleLetters(pixels: IntArray, width: Int, height: Int, box: Box): InkMeasure.Ink? {
         val bubble = closedBubble(pixels, width, height, box) ?: return null
         val lobe = bubble.erased ?: return null
         val ink = InkMeasure.measure(
@@ -230,7 +247,7 @@ object PageLettering {
             vertical = false,
             inside = bubble.room,
         )
-        return ink?.takeIf { it.core >= MIN_CORE && it.core <= height * MAX_CORE }?.box
+        return ink?.takeIf { it.core >= MIN_CORE && it.core <= height * MAX_CORE }
     }
 
     /** The closed bubble [box] lies in: almost all of the box inside its light area, which is light but for letters. */
@@ -256,6 +273,8 @@ object PageLettering {
         val locale: Locale,
         /** A sound effect's letters, found to be erased and drawn again. */
         val sfx: SfxLetters.Letters? = null,
+        /** Narration's letters on the art, found like a sound's: erased the same way, set as text. */
+        val art: SfxLetters.Letters? = null,
     ) {
         /**
          * A bubble whose box is in no light area (the model put it on the art and no bubble was
@@ -275,7 +294,7 @@ object PageLettering {
         fonts: Fonts,
     ): Plan {
         val upper = region.type == RegionType.Sfx || LetterCase.upper(region.text, region.type)
-        val text = LetterCase.apply(region.translation, upper, locale)
+        val text = LetterCase.apply(LetterCase.withoutQuotes(region.translation, region.text), upper, locale)
         val font = fonts.measurer(text, bold = region.type == RegionType.Sfx)
         if (!region.type.erasesOriginal) {
             // A sound effect's letters with an edge are erased and the translation drawn like them
@@ -292,7 +311,7 @@ object PageLettering {
         }
 
         val sign = region.type == RegionType.Other
-        val bubble = BubbleEraser.analyze(
+        val found = BubbleEraser.analyze(
             pixels = pixels,
             width = width,
             height = height,
@@ -302,6 +321,20 @@ object PageLettering {
             paintBox = region.box.expanded(if (sign) SIGN_MARGIN else BubbleEraser.PAINT_MARGIN, width, height),
             followLetters = !sign,
         )
+        // Narration on the art (light letters with a dark edge, no box around them): its letters are
+        // found like a sound's, and the art behind them drawn on. Only when (nearly) all of them are
+        // found: a part erased would leave the rest beside the translation
+        val captionOnArt = !sign && region.type == RegionType.Caption && !found.onArt && found.coverage < ART_COVERAGE
+        val art = if (!sign && (found.onArt || captionOnArt)) {
+            SfxLetters.find(pixels, width, height, region.box, region.text)
+                ?.takeIf { it.pieces >= region.text.count(Char::isLetterOrDigit) * ART_PIECES }
+        } else {
+            null
+        }
+        if (art != null) return artPlan(region, text, font, art, locale)
+        // ...otherwise its light letters are cleaned off the art (painting the light found around
+        // them, as in a bubble, would leave white blots on the art)
+        val bubble = if (captionOnArt) BubbleEraser.Result(null, WHITE, onArt = true) else found
         val cjkSource = LetterCase.isCjk(region.text)
         val vertical = cjkSource && region.box.height > region.box.width * VERTICAL_RATIO
         // In a closed bubble every letter inside is this text's (the model's box may be off by a
@@ -368,6 +401,58 @@ object PageLettering {
         }
         val lineHeight = (measured ?: font.lineHeight * NATURAL_SPACING).coerceIn(MIN_LINE_HEIGHT, MAX_LINE_HEIGHT)
         return Plan(region, text, font, bubble, ink, size, lineHeight, locale)
+    }
+
+    /** Narration whose letters on the art were found: set as text on the art, as big as they were. */
+    private fun artPlan(
+        region: TextRegion,
+        text: String,
+        font: TextMeasurer,
+        art: SfxLetters.Letters,
+        locale: Locale,
+    ): Plan {
+        var left = Int.MAX_VALUE
+        var top = Int.MAX_VALUE
+        var right = -1
+        var bottom = -1
+        for (i in art.mask.indices) {
+            if (!art.mask[i]) continue
+            val x = art.area.left + i % art.area.width
+            val y = art.area.top + i / art.area.width
+            left = minOf(left, x)
+            top = minOf(top, y)
+            right = maxOf(right, x + 1)
+            bottom = maxOf(bottom, y + 1)
+        }
+        val lines = art.lines.sortedBy { it.centerY }
+        val pitch = lines.zipWithNext { a, b -> kotlin.math.hypot(b.centerX - a.centerX, b.centerY - a.centerY) }
+            .sorted().let { if (it.isEmpty()) null else it[it.size / 2] }
+        // The letters' height across the line, edge included: a capital with its outline
+        val cap = if (LetterCase.upper(region.text, region.type)) {
+            art.letterHeight
+        } else {
+            art.letterHeight * font.capHeight / font.xHeight
+        }
+        val ink = InkMeasure.Ink(
+            Box(left, top, right, bottom),
+            lines.size.coerceAtLeast(1),
+            art.letterHeight,
+            pitch,
+            WHITE,
+        )
+        val lineHeight = pitch?.let { it / art.letterHeight * font.capHeight }
+            ?.coerceIn(MIN_LINE_HEIGHT, MAX_LINE_HEIGHT) ?: (font.lineHeight * NATURAL_SPACING)
+        return Plan(
+            region,
+            text,
+            font,
+            BubbleEraser.Result(null, WHITE, onArt = true),
+            ink,
+            cap / font.capHeight,
+            lineHeight,
+            locale,
+            art = art,
+        )
     }
 
     private fun layout(plan: Plan, size: Float, width: Int, height: Int, others: List<Box>): Lettering? {
@@ -672,6 +757,9 @@ object PageLettering {
     /** How far around the text box the bubble may extend, as a share of the box's longer side. */
     private const val SEARCH_MARGIN = 1.0f
 
+    /** Kana that end a breath rather than spell a word: "……ッ!!" is a gasp, not text to translate. */
+    private const val CUT_OFF = "ッっー"
+
     /** Before a word is split, text may get this much smaller than its smallest normal size... */
     private const val LAST_RESORT_SCALE = 0.7f
 
@@ -732,8 +820,27 @@ object PageLettering {
     /** ...and letters holding this share of the box itself were under it already. */
     private const val ALREADY_ON = 0.8f
 
+    /** A caption with less of its box than this in a light area is on the art. */
+    private const val ART_COVERAGE = 0.5f
+
+    /** Narration on the art is erased like a sound's when this many pieces per letter of it are found. */
+    private const val ART_PIECES = 0.75f
+
+    /** Light letters' outline is never thicker than this share of the page width... */
+    private const val MAX_ART_OUTLINE = 0.006f
+
+    /** ...nor cleaned further than this around them. */
+    private const val MAX_ART_MARGIN = 0.012f
+
     /** Places tried for a bubble whose box is beside its letters. */
     private const val MAX_SNAP_TRIES = 150
+
+    /**
+     * A box moves onto letters at most this many times the page's letter size (measured on at
+     * least [MIN_PAGE_CORES] bubbles in place): a shout is bigger, an eye drawn on a white panel more so.
+     */
+    private const val MAX_SNAP_CORE = 2.5f
+    private const val MIN_PAGE_CORES = 2
 
     /** A measured band smaller than this (pixels) or larger than this share of the page is not letters. */
     private const val MIN_CORE = 4f

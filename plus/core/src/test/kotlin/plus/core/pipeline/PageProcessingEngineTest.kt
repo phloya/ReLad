@@ -128,6 +128,42 @@ class PageProcessingEngineTest {
         second.calls shouldBe 2
     }
 
+    /** Waits until let go, counting how many pages it works on at once. */
+    private class SlowProcessor(override val id: String, override val concurrency: Int) : PageProcessor {
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var running = 0
+        var most = 0
+
+        override val order = 1
+
+        override fun signature(context: PageContext) = "v1"
+
+        override suspend fun process(input: ByteArray, context: PageContext): ProcessedPage {
+            running++
+            most = maxOf(most, running)
+            release.await()
+            running--
+            return ProcessedPage(input)
+        }
+    }
+
+    @Test
+    fun `a step works on no more pages at once than it allows`() = runTest {
+        val slow = SlowProcessor("slow", concurrency = 2)
+        val engine = PageProcessingEngine(
+            processors = { listOf(slow) },
+            cache = PageCache(dir),
+            scope = workScope(),
+            parallelism = 4,
+        )
+        repeat(4) { engine.resolve("page $it".toByteArray(), context) }
+        runCurrent()
+        slow.most shouldBe 2
+        slow.release.complete(Unit)
+        advanceUntilIdle()
+        slow.running shouldBe 0
+    }
+
     @Test
     fun `asking again while a page is in work does not start it twice`() = runTest {
         val tag = TagProcessor("a", 1)

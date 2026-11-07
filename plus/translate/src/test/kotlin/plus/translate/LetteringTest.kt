@@ -149,4 +149,29 @@ class LetteringTest {
         LetterCase.upper("出口", RegionType.Other) shouldBe false
         LetterCase.apply("oʻzbekcha", upper = true, Locale.forLanguageTag("uz")) shouldBe "OʻZBEKCHA"
     }
+
+    @Test
+    fun `a line is not put in quotation marks`() {
+        LetterCase.withoutQuotes("«Леди Фарнезе...!!»", "LADY FARNESE ...!!") shouldBe "Леди Фарнезе...!!"
+        LetterCase.withoutQuotes("«Эй!»!", "HEY!!") shouldBe "Эй!!"
+        LetterCase.withoutQuotes("\"Hey!\"", "おい!") shouldBe "Hey!"
+        // Quotes inside the line, or quoted in the original too, stay
+        LetterCase.withoutQuotes("Он сказал «нет» и ушёл", "HE SAID \"NO\"") shouldBe "Он сказал «нет» и ушёл"
+        LetterCase.withoutQuotes("«Да» или «нет»", "YES OR NO") shouldBe "«Да» или «нет»"
+        LetterCase.withoutQuotes("«Нет»", "\"NO\"") shouldBe "«Нет»"
+    }
+
+    @Test
+    fun `dots and marks are left as drawn`() {
+        val width = 200
+        val height = 200
+        val pixels = IntArray(width * height) { -0x1 }
+        val regions = listOf(
+            TextRegion(RegionType.Bubble, Box(20, 20, 60, 80), "……!!", "……!!"),
+            TextRegion(RegionType.Bubble, Box(80, 20, 120, 80), "……ッ!!", "ч-!!"),
+            TextRegion(RegionType.Bubble, Box(20, 120, 180, 180), "WAIT!", "Стой!"),
+        )
+        val plans = PageLettering.plan(pixels, width, height, regions, "ru", { _, _ -> measurer })
+        plans.map { it.region.text } shouldBe listOf("WAIT!")
+    }
 }

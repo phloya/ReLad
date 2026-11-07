@@ -13,6 +13,12 @@ interface PageProcessor {
     val order: Int
 
     /**
+     * How many pages this step may work on at once. Work on the phone (a neural network) keeps
+     * to a couple; a step that mostly waits for a server can take more.
+     */
+    val concurrency: Int get() = DEFAULT_CONCURRENCY
+
+    /**
      * Describes everything that changes this processor's output for the same input: settings,
      * model, target language, prompt version. `null` means the processor is switched off.
      * A different signature means a different cache entry, so bump it when the output changes.
@@ -24,6 +30,10 @@ interface PageProcessor {
      * may be slow (network, GPU). Throw to report a failure; the page then stays as it was.
      */
     suspend fun process(input: ByteArray, context: PageContext): ProcessedPage
+
+    companion object {
+        const val DEFAULT_CONCURRENCY = 2
+    }
 }
 
 /** What a processor produced: the encoded image and optional data about it (e.g. text regions as JSON). */

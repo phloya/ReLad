@@ -26,7 +26,10 @@ data class TitleBible(
     val chapters: List<ChapterNotes> = emptyList(),
     /** Grows with every change; lets the screen and the prompt cache notice changes cheaply. */
     val revision: Int = 0,
-)
+) {
+    /** Nothing learned yet: no characters, no terms. */
+    val isNew: Boolean get() = characters.isEmpty() && terms.isEmpty()
+}
 
 /** What the title is, from the source's description and the model's first pages. */
 @Serializable

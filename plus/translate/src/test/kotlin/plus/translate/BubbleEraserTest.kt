@@ -233,4 +233,28 @@ class BubbleEraserTest {
         result.onArt shouldBe true
         page[62, 100] shouldBe white
     }
+
+    @Test
+    fun `a small bubble among dark art is still a bubble`() {
+        val page = Page()
+        page.rect(0, 0, 200, 200, 0xFF303030.toInt())
+        // A narrow white shout with dots and "!!" in it; the model's box is much wider than it
+        page.rect(90, 60, 110, 140, white)
+        for (y in listOf(70, 78, 86)) page.rect(98, y, 102, y + 4, black)
+        page.rect(95, 100, 98, 120, black)
+        page.rect(102, 100, 105, 120, black)
+
+        val result = BubbleEraser.erase(
+            page.pixels,
+            page.width,
+            page.height,
+            Box(60, 55, 140, 145),
+            Box(0, 0, 200, 200),
+        )
+
+        result.onArt shouldBe false
+        page[100, 80] shouldBe white
+        page[96, 110] shouldBe white
+        page[50, 100] shouldBe 0xFF303030.toInt()
+    }
 }

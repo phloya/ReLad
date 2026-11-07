@@ -2,9 +2,8 @@ package plus.translate
 
 /**
  * Removes light letters with their dark outline from the art behind them (narration and titles
- * over a scene): the letters' pixels are filled in from the art around them, layer by layer from
- * the edge inwards. The art between the letters stays; where the letters were it is a little soft,
- * and the translation, drawn the same way, covers most of it.
+ * over a scene): the letters' pixels are drawn on from the art around them ([Inpaint]). The art
+ * between the letters stays, and the translation, drawn the same way, covers most of the rest.
  *
  * Works on plain ARGB pixels so it can be tested without Android.
  */
@@ -40,48 +39,8 @@ object ArtCleaner {
         val near = dilate(letter, w, h, outline)
         val mask = BooleanArray(w * h) { i -> letter[i] || (near[i] && dark[i]) }
 
-        val known = BooleanArray(w * h) { !mask[it] }
-        var unknown = mask.count { it }
-        val layer = ArrayList<Int>()
-        val values = ArrayList<Int>()
-        while (unknown > 0) {
-            layer.clear()
-            values.clear()
-            for (y in 0 until h) {
-                for (x in 0 until w) {
-                    val i = y * w + x
-                    if (known[i]) continue
-                    var r = 0
-                    var g = 0
-                    var b = 0
-                    var n = 0
-                    for (dy in -1..1) {
-                        val ny = y + dy
-                        if (ny < 0 || ny >= h) continue
-                        for (dx in -1..1) {
-                            val nx = x + dx
-                            if (nx < 0 || nx >= w || !known[ny * w + nx]) continue
-                            val color = pixels[(area.top + ny) * width + area.left + nx]
-                            r += (color shr 16) and 0xFF
-                            g += (color shr 8) and 0xFF
-                            b += color and 0xFF
-                            n++
-                        }
-                    }
-                    if (n == 0) continue
-                    layer += i
-                    values += (0xFF shl 24) or ((r / n) shl 16) or ((g / n) shl 8) or (b / n)
-                }
-            }
-            // Nothing known anywhere around (the whole area is letters): leave it
-            if (layer.isEmpty()) return
-            for (k in layer.indices) {
-                val i = layer[k]
-                pixels[(area.top + i / w) * width + area.left + i % w] = values[k]
-                known[i] = true
-            }
-            unknown -= layer.size
-        }
+        // The art behind is drawn on from the art around: hatching goes on instead of turning gray
+        if (mask.any { it }) Inpaint.fill(pixels, width, height, area, mask)
     }
 
     /** Every pixel within [radius] (a square) of a set one. */

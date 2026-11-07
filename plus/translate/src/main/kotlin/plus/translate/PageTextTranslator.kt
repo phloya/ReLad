@@ -59,7 +59,10 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
     ): Result {
         val bible = bibles.get(context.mangaId, context.mangaTitle, language.code, context.sourceLanguage)
             .withAbout(context)
-        val previous = ChapterMemory.previous(context.chapterId, context.pageIndex)
+        // A title's first pages go one at a time, each with the one before: its names and how
+        // characters address each other are found there. After that pages go side by side, with
+        // the lines of pages already done, and the notes keep names and forms the same
+        val previous = ChapterMemory.previous(context.chapterId, context.pageIndex, wait = bible.isNew)
         val rules = TranslationPrompt.rules(language, context.sourceLanguage, translateSoundEffects, units)
         val notes = TranslationPrompt.titleNotes(bible, context.chapterId)
         val usage = mutableListOf<AiUsage>()
@@ -146,8 +149,8 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
  * Lines of the last pages of recent chapters, given to the model as context (original and
  * translation, with speakers). Kept in memory only: the title's notes carry what must last.
  *
- * Pages are translated two at a time and the newest request first, so the previous page may still
- * be on its way: a page then waits for it a little, to get its lines.
+ * Pages are translated several at a time, so the previous page may still be on its way. While a
+ * title is new a page waits for it a little, to get its lines; later it takes the pages done.
  */
 internal object ChapterMemory {
 
@@ -172,8 +175,8 @@ internal object ChapterMemory {
         chapters.getOrPut(chapterId) { mutableMapOf() }[pageIndex] = regions
     }
 
-    suspend fun previous(chapterId: Long, pageIndex: Int): List<TextRegion> {
-        val waiting = synchronized(this) { inFlight[chapterId to (pageIndex - 1)] }
+    suspend fun previous(chapterId: Long, pageIndex: Int, wait: Boolean = true): List<TextRegion> {
+        val waiting = if (wait) synchronized(this) { inFlight[chapterId to (pageIndex - 1)] } else null
         if (waiting != null) withTimeoutOrNull(WAIT_FOR_PREVIOUS_MS) { waiting.await() }
         return synchronized(this) {
             val pages = chapters[chapterId] ?: return emptyList()
