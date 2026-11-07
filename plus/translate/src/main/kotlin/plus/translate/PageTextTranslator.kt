@@ -57,12 +57,15 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
         translateSoundEffects: Boolean,
         units: BoxUnits,
     ): Result {
-        val bible = bibles.get(context.mangaId, context.mangaTitle, language.code, context.sourceLanguage)
-            .withAbout(context)
-        // A title's first pages go one at a time, each with the one before: its names and how
-        // characters address each other are found there. After that pages go side by side, with
-        // the lines of pages already done, and the notes keep names and forms the same
-        val previous = ChapterMemory.previous(context.chapterId, context.pageIndex, wait = bible.isNew)
+        var bible = bibles.get(context.mangaId, context.mangaTitle, language.code, context.sourceLanguage)
+        // A title's first page goes alone: its names and how characters address each other are found
+        // there. The pages after it wait for it (not each for the one before: that made the first six
+        // pages a queue) and then go side by side with its notes; the notes keep names the same
+        if (bible.isNew && ChapterMemory.awaitFirst(context.chapterId, context.pageIndex)) {
+            bible = bibles.get(context.mangaId, context.mangaTitle, language.code, context.sourceLanguage)
+        }
+        bible = bible.withAbout(context)
+        val previous = ChapterMemory.previous(context.chapterId, context.pageIndex)
         val rules = TranslationPrompt.rules(language, context.sourceLanguage, translateSoundEffects, units)
         val notes = TranslationPrompt.titleNotes(bible, context.chapterId)
         val usage = mutableListOf<AiUsage>()
@@ -81,8 +84,10 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
                 ),
                 images = listOf(image.image),
                 jsonOutput = true,
-                // A page is careful writing, not a puzzle: deep hidden reasoning only adds cost
-                effort = AiEffort.Low,
+                // A page is careful writing, not a puzzle. Hidden reasoning was two thirds of what the
+                // model wrote and so of the wait (DeepSeek: 3,600 tokens a page at "low"); without it
+                // the answer starts at once
+                effort = AiEffort.None,
             ),
         )
         response.usage?.let(usage::add)
@@ -97,8 +102,10 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
             .filter { translateSoundEffects || it.type.erasesOriginal }
             .map { it.copy(translation = Orthography.fix(language.code, it.translation)) }
 
-        // Free checks on the phone; only flagged lines go back for a second look, as text
-        val problems = TranslationChecks.check(regions, bible)
+        // Free checks on the phone; only flagged lines go back for a second look, as text. Against the
+        // notes as they are now: pages done meanwhile may have added a name this page spelled otherwise
+        val latest = bibles.get(context.mangaId, context.mangaTitle, language.code, context.sourceLanguage)
+        val problems = TranslationChecks.check(regions, latest)
         if (problems.isNotEmpty()) {
             try {
                 val fix = client.send(
@@ -108,7 +115,7 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
                         prompt = TranslationPrompt.fixes(regions, problems),
                         jsonOutput = true,
                         maxOutputTokens = FIX_MAX_TOKENS,
-                        effort = AiEffort.Low,
+                        effort = AiEffort.None,
                     ),
                 )
                 fix.usage?.let(usage::add)
@@ -158,7 +165,8 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
  * translation, with speakers). Kept in memory only: the title's notes carry what must last.
  *
  * Pages are translated several at a time, so the previous page may still be on its way. While a
- * title is new a page waits for it a little, to get its lines; later it takes the pages done.
+ * title is new a page waits for the first page on its way, to get its notes and lines; later it
+ * takes the pages done.
  */
 internal object ChapterMemory {
 
@@ -183,9 +191,22 @@ internal object ChapterMemory {
         chapters.getOrPut(chapterId) { mutableMapOf() }[pageIndex] = regions
     }
 
-    suspend fun previous(chapterId: Long, pageIndex: Int, wait: Boolean = true): List<TextRegion> {
-        val waiting = if (wait) synchronized(this) { inFlight[chapterId to (pageIndex - 1)] } else null
-        if (waiting != null) withTimeoutOrNull(WAIT_FOR_PREVIOUS_MS) { waiting.await() }
+    /**
+     * Waits (a little) for the earliest page of this chapter before [pageIndex] still on its way:
+     * the one whose notes the others want. `true` if there was one.
+     */
+    suspend fun awaitFirst(chapterId: Long, pageIndex: Int): Boolean {
+        val first = synchronized(this) {
+            inFlight.entries
+                .filter { (key, _) -> key.first == chapterId && key.second < pageIndex }
+                .minByOrNull { (key, _) -> key.second }
+                ?.value
+        } ?: return false
+        withTimeoutOrNull(WAIT_FOR_FIRST_MS) { first.await() }
+        return true
+    }
+
+    fun previous(chapterId: Long, pageIndex: Int): List<TextRegion> {
         return synchronized(this) {
             val pages = chapters[chapterId] ?: return emptyList()
             pages.filterKeys { it < pageIndex }.toSortedMap().values.toList().takeLast(CONTEXT_PAGES).flatten()
@@ -194,5 +215,5 @@ internal object ChapterMemory {
 
     private const val MAX_CHAPTERS = 20
     private const val CONTEXT_PAGES = 2
-    private const val WAIT_FOR_PREVIOUS_MS = 15_000L
+    private const val WAIT_FOR_FIRST_MS = 30_000L
 }

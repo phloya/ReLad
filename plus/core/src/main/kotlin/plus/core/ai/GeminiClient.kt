@@ -63,8 +63,9 @@ class GeminiClient(
                     }
                     request.jsonOutput -> put("responseMimeType", "application/json")
                 }
-                // Gemini 3 and later take a level; "low" is the one every such model accepts
-                if (request.effort == AiEffort.Low && takesThinkingLevel()) {
+                // Gemini 3 and later take a level; "low" is the least every such model accepts
+                val least = request.effort == AiEffort.Low || request.effort == AiEffort.None
+                if (least && takesThinkingLevel()) {
                     putJsonObject("thinkingConfig") { put("thinkingLevel", "low") }
                 }
             }

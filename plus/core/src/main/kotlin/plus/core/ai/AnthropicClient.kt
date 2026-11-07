@@ -41,7 +41,12 @@ class AnthropicClient(
             put("max_tokens", request.maxOutputTokens)
             if (fallback) put("fallbacks", "default")
             if (request.effort != null && config.model in EFFORT_MODELS) {
-                putJsonObject("output_config") { put("effort", request.effort.wire) }
+                // No "none" effort: the least is "low", and thinking is turned off below where it can be
+                val effort = if (request.effort == AiEffort.None) AiEffort.Low else request.effort
+                putJsonObject("output_config") { put("effort", effort.wire) }
+            }
+            if (request.effort == AiEffort.None) {
+                thinkingOff()?.let { type -> putJsonObject("thinking") { put("type", type) } }
             }
             if (request.stableSystem != null) {
                 // Cached up to each marker: the fixed part, then the fixed part plus the rest
@@ -88,6 +93,8 @@ class AnthropicClient(
             .build()
     }
 
+    private fun thinkingOff(): String? = THINKING_OFF[config.model]
+
     /** Only models that support `fallbacks: "default"`, and only on Anthropic's API (not proxies or other clouds). */
     private fun usesServerFallback(): Boolean =
         config.model in FALLBACK_MODELS && config.baseUrl.trimEnd('/') == AiProviderType.Anthropic.defaultBaseUrl
@@ -133,6 +140,18 @@ class AnthropicClient(
 
         /** Models that accept `fallbacks: "default"` (checked 2026-11-07). */
         val FALLBACK_MODELS = setOf("claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5")
+
+        /**
+         * How each model turns thinking off, where it is on by default: Sonnet 5.5 rejects "disabled"
+         * and takes "between_tools" (no thinking without tools). Opus 5.5 and Fable can't turn it
+         * off, effort is all; Claude 4.x doesn't think unless asked (checked 2026-11-08).
+         */
+        val THINKING_OFF = mapOf(
+            "claude-haiku-5-5" to "disabled",
+            "claude-opus-5" to "disabled",
+            "claude-sonnet-5" to "disabled",
+            "claude-sonnet-5-5" to "between_tools",
+        )
 
         /** Models that take `output_config.effort`; older ones reject it (checked 2026-11-07). */
         val EFFORT_MODELS = setOf(

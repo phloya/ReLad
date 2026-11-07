@@ -41,6 +41,12 @@ object BiblePrompt {
             append("\n# Characters\n")
             append("Use exactly these names, genders and voices. original → translation.\n")
             characters.forEach { append("- ").append(it.line()).append('\n') }
+        } else if (bible.characters.isEmpty()) {
+            // With no list in sight models took "not in the list yet" for "nothing to report", and
+            // pages translated side by side then spelled one name three ways
+            append("\n# Characters\n")
+            append("None yet: report every named character in \"new_characters\", ")
+            append("so later pages spell them the same.\n")
         }
 
         val terms = bible.terms.relevant(MAX_TERMS, recent, { it.locked }, { it.lastSeenChapter })

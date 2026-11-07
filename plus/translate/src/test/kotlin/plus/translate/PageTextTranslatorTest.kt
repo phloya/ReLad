@@ -70,9 +70,9 @@ class PageTextTranslatorTest {
         val first = model.requests[0]
         first.stableSystem!! shouldContain "Polivanov"
         first.system!! shouldContain "Genres: Action"
-        first.system!! shouldNotContain "# Characters"
+        first.system!! shouldContain "# Characters\nNone yet"
         first.images shouldHaveSize 1
-        first.effort shouldBe AiEffort.Low
+        first.effort shouldBe AiEffort.None
         one.regions.single().speaker shouldBe "炭治郎"
 
         // Page 2: same rules, the notes now carry the name and the term, the prompt the previous lines
