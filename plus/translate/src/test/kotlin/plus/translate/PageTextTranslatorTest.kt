@@ -72,6 +72,7 @@ class PageTextTranslatorTest {
         first.system!! shouldContain "Genres: Action"
         first.system!! shouldContain "# Characters\nNone yet"
         first.images shouldHaveSize 1
+        // Some hidden reasoning: without it text goes missing on long strips
         first.effort shouldBe AiEffort.Low
         one.regions.single().speaker shouldBe "炭治郎"
 

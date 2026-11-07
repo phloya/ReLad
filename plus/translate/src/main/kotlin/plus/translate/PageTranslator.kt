@@ -86,20 +86,24 @@ class PageTranslator(
         val regions = page.regions
 
         // A few pages at a time: a long strip at full size takes tens of megabytes while it is drawn
-        val image = rendering.withPermit {
+        val (image, placed) = rendering.withPermit {
             // Full size up to 16 MP whatever the shape (a 4096 side limit made 800 × 14 820 strips 200 px
             // wide and blurry); larger pages are decoded smaller, boxes are in original pixels
             val bitmap = PageBitmaps.decode(input, maxSide = MAX_RENDER_SIDE, maxPixels = MAX_RENDER_PIXELS)
-            val scaled = if (bitmap.width == size.width) {
-                regions
-            } else {
-                regions.scaledTo(bitmap.width.toFloat() / size.width)
-            }
-            PageTypesetter.render(bitmap, scaled, s.language.code, lettering)
-            PageBitmaps.encode(bitmap, Bitmap.CompressFormat.JPEG, quality = 95).also { bitmap.recycle() }
+            val factor = bitmap.width.toFloat() / size.width
+            val scaled = if (bitmap.width == size.width) regions else regions.scaledTo(factor)
+            // The boxes as put onto the text found on the page: kept, in the original's pixels
+            val placed = PageTypesetter.render(bitmap, scaled, s.language.code, lettering)
+                .let { if (bitmap.width == size.width) it else it.scaledTo(1 / factor) }
+            PageBitmaps.encode(bitmap, Bitmap.CompressFormat.JPEG, quality = 95).also { bitmap.recycle() } to placed
         }
 
-        return ProcessedPage(image = image, metadata = json.encodeToString(TranslatedPage.serializer(), page))
+        // The boxes as put onto the page's text go with the image; the kept translation keeps the
+        // model's, so a better placement later redraws from them
+        return ProcessedPage(
+            image = image,
+            metadata = json.encodeToString(TranslatedPage.serializer(), page.copy(regions = placed)),
+        )
     }
 
     private suspend fun translate(
@@ -262,7 +266,7 @@ class PageTranslator(
         const val RENDER_AT_ONCE = 2
 
         /** Bump when erasing or typesetting changes: pages already made are then drawn again. */
-        const val RENDER_VERSION = 10
+        const val RENDER_VERSION = 12
         const val MAX_MODEL_BYTES = 4 * 1024 * 1024
 
         /** Claude scales larger images down itself (about 3.75 MP); keep below to know the size. */

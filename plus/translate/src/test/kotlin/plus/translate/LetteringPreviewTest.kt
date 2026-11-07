@@ -79,20 +79,34 @@ class LetteringPreviewTest {
                 g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON)
                 for (plan in plans) {
                     val measurer = plan.font as AwtMeasurer
+                    // Scaled, and leaning as the original's letters (a glyph's top is at negative y)
+                    val size = plan.block.size.toDouble()
                     val font = measurer.font.deriveFont(
-                        AffineTransform.getScaleInstance(
-                            measurer.scaleX.toDouble() * plan.block.size,
-                            plan.block.size.toDouble(),
-                        ),
+                        AffineTransform(measurer.scaleX * size, 0.0, -plan.skew * size, size, 0.0, 0.0),
                     )
+                    val leaning = plan.skew * measurer.capHeight * plan.block.size / 2
                     val plain = g.transform
                     if (plan.angle != 0f) {
                         g.rotate(Math.toRadians(plan.angle.toDouble()), plan.pivotX.toDouble(), plan.pivotY.toDouble())
                     }
                     for (line in plan.block.lines) {
                         val text = line.text.replace('ʻ', '‘')
-                        val x = line.centerX - measurer.width(text) * plan.block.size / 2
+                        val x = line.centerX - measurer.width(text) * plan.block.size / 2 - leaning
                         val shape = font.createGlyphVector(context, text).getOutline(x, line.baseline)
+                        plan.glow?.let {
+                            // A soft glow: wide faint strokes under narrower ones
+                            val reach = plan.block.size * plan.glowRadius
+                            for (k in GLOW_STEPS downTo 1) {
+                                g.color = Color((it and 0xFFFFFF) or (GLOW_ALPHA shl 24), true)
+                                g.stroke =
+                                    BasicStroke(
+                                        2 * reach * k / GLOW_STEPS,
+                                        BasicStroke.CAP_ROUND,
+                                        BasicStroke.JOIN_ROUND,
+                                    )
+                                g.draw(shape)
+                            }
+                        }
                         plan.outline?.let {
                             g.color = Color(it)
                             g.stroke =
@@ -120,6 +134,11 @@ class LetteringPreviewTest {
                 ImageIO.write(result, "png", File(out, "${dir.name}-${file.nameWithoutExtension}.png"))
             }
         }
+    }
+
+    private companion object {
+        const val GLOW_STEPS = 4
+        const val GLOW_ALPHA = 70
     }
 
     private inner class AwtMeasurer(base: Font, val scaleX: Float) : TextMeasurer {
