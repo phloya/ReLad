@@ -2,7 +2,7 @@
 <!-- PLUS: Re:Lad scan enhancement strings (branch relad/enhance) -->
 <resources>
     <string name="plus_enhance_strength">Cleaning strength</string>
-    <string name="plus_enhance_strength_summary">How hard noise and JPEG blocks are removed. Stronger cleans more but can smooth fine screentone</string>
+    <string name="plus_enhance_strength_summary">How hard noise and JPEG blocks are removed. Medium and Strong clean more but wipe out fine detail and tone gradients</string>
     <string name="plus_enhance_strength_auto">Automatic, by how compressed the page is</string>
     <string name="plus_enhance_strength_conservative">Gentle</string>
     <string name="plus_enhance_strength_light">Light</string>

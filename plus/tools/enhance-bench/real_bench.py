@@ -54,13 +54,7 @@ def spoil(page, scale, blur, noise, quality, paper, resample):
 
 def model_for(quality):
     """ScanQuality.strengthForJpeg"""
-    if quality < 25:
-        return "se-up2x-denoise3x"
-    if quality < 50:
-        return "se-up2x-denoise2x"
-    if quality < 75:
-        return "se-up2x-denoise1x"
-    return "se-up2x-conservative"
+    return "se-up2x-denoise1x" if quality < 50 else "se-up2x-conservative"
 
 
 def whiten(rgb):

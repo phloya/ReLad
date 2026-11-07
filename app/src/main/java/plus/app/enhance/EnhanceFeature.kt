@@ -28,6 +28,7 @@ import plus.enhance.EnhanceModels
 import plus.enhance.ModelStore
 import plus.enhance.NativeUpscaler
 import plus.enhance.PageEnhancer
+import plus.enhance.ScanQuality
 import plus.enhance.Strength
 import plus.enhance.cloud.ReplicateModel
 import plus.enhance.cloud.ReplicateModels
@@ -111,9 +112,9 @@ internal class EnhancePreferences(graph: PlusGraph) {
         return PageEnhancer.Cloud(upscaler, replicateModel())
     }
 
-    /** Models the current setting may use: all strengths in automatic mode. */
-    fun models(): List<EnhanceModel> = fixedStrength()?.let { listOf(EnhanceModels.cugan.getValue(it)) }
-        ?: EnhanceModels.cugan.values.toList()
+    /** Models the current setting may use: in automatic mode, those of [ScanQuality.autoStrengths]. */
+    fun models(): List<EnhanceModel> = (fixedStrength()?.let(::listOf) ?: ScanQuality.autoStrengths)
+        .map(EnhanceModels.cugan::getValue)
 
     companion object {
         const val AUTO = "auto"

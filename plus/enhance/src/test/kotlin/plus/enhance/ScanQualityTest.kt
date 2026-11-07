@@ -55,12 +55,19 @@ class ScanQualityTest {
     }
 
     @Test
-    fun `stronger cleaning for harder compression`() {
-        ScanQuality.strengthFor(jpeg(12)) shouldBe Strength.Strong
-        ScanQuality.strengthFor(jpeg(30)) shouldBe Strength.Medium
-        ScanQuality.strengthFor(jpeg(60)) shouldBe Strength.Light
+    fun `light cleaning below JPEG 50 %, conservative above`() {
+        ScanQuality.strengthFor(jpeg(12)) shouldBe Strength.Light
+        ScanQuality.strengthFor(jpeg(30)) shouldBe Strength.Light
+        ScanQuality.strengthFor(jpeg(45)) shouldBe Strength.Light
+        ScanQuality.strengthFor(jpeg(60)) shouldBe Strength.Conservative
         ScanQuality.strengthFor(jpeg(90)) shouldBe Strength.Conservative
         ScanQuality.strengthFor(png()) shouldBe Strength.Conservative
+    }
+
+    @Test
+    fun `automatic mode never picks medium or strong`() {
+        val picked = (1..100).map(ScanQuality::strengthForJpeg).toSet()
+        picked shouldBe ScanQuality.autoStrengths.toSet()
     }
 
     @Test

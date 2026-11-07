@@ -202,8 +202,9 @@ class PageEnhancer(
          * 3: Real-CUGAN, SE features from the real tiles.
          * 4: unresolvable screentone smoothed before the network (the tone came out flat, "soapy").
          * 5: its texture put back after the network.
+         * 6: automatic strength only Conservative or Light (no Medium/Strong).
          */
-        const val VERSION = 5
+        const val VERSION = 6
         const val TILE_SIZE = 200
         const val TEXTURE_BAND = 128
     }
