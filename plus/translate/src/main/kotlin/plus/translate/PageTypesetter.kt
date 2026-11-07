@@ -131,7 +131,9 @@ object PageTypesetter {
         val minSize = MIN_TEXT_SIZE_FRACTION * pageWidth
         val shaped = placement.shape?.let { fitShape(text, paint, it, minSize, pageWidth * 0.12f) }
         val area = shaped?.first ?: placement.area
-        val maxSize = maxOf(MIN_TEXT_SIZE_FRACTION * pageWidth, area.height * 0.9f).coerceAtMost(pageWidth * 0.12f)
+        // A sound effect's translation stays small: the drawn original is part of the art
+        val cap = if (placement.outlined) pageWidth * SFX_MAX_SIZE else pageWidth * 0.12f
+        val maxSize = maxOf(MIN_TEXT_SIZE_FRACTION * pageWidth, area.height * 0.9f).coerceAtMost(cap)
         val layout = shaped?.second ?: fit(text, paint, area, minSize, maxSize)
         val top = area.top + (area.height - layout.height) / 2f
 
@@ -265,6 +267,7 @@ object PageTypesetter {
     private const val LINE_SPACING = 1.0f
     private const val FIT_STEPS = 12
     private const val SHAPE_STEPS = 8
+    private const val SFX_MAX_SIZE = 0.055f
 
     /** Space between the text and the bubble's outline, as a share of the bubble's size. */
     private const val SHAPE_PADDING = 0.06f

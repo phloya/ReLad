@@ -18,12 +18,17 @@ enum class RegionType {
     @SerialName("sfx")
     Sfx,
 
-    /** Other text on the art (signs, notes, handwriting): like a sound effect. */
+    /** Other text on the art (signs, notes, handwriting, titles): replaced like a caption. */
     @SerialName("other")
     Other,
     ;
 
-    val erasesOriginal: Boolean get() = this == Bubble || this == Caption
+    /**
+     * Everything but sound effects is erased (or covered with a label on dark art) and replaced:
+     * signs and notes are text to read. Sound effects are part of the art and stay under a
+     * small translation.
+     */
+    val erasesOriginal: Boolean get() = this != Sfx
 }
 
 /**

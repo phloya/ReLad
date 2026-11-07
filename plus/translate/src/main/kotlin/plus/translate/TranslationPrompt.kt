@@ -17,7 +17,7 @@ import plus.translate.bible.TranslationChecks
 object TranslationPrompt {
 
     /** Bump when the prompt or the answer format changes: cached translations are then redone. */
-    const val VERSION = 2
+    const val VERSION = 3
 
     fun rules(
         language: TargetLanguage,
@@ -78,7 +78,8 @@ object TranslationPrompt {
             - "speaker": the original name (as in the Characters list) of who says it, only if the art makes it
               clear; otherwise "unsure". Narration and sound effects: "unsure".
             - "text": the original text exactly as written. "translation": your translation.
-            - Regions in reading order. ${source.readingOrder} One bubble = one region, even with several lines.
+            - Regions in reading order. ${source.readingOrder} One bubble = one region, even with several
+              lines; separate bubbles are separate regions, even when one sentence runs on from one to the next.
             - "new_characters": named characters who appear or are named on this page and are not in the Characters
               list yet, or are listed without gender or speech and now show it:
               "original" in the source script, "name" as you wrote it, "gender" male/female/other/unknown,
