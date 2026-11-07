@@ -8,8 +8,10 @@ import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.widget.ImageView
 import androidx.core.view.children
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
+import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.InsertPage
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.viewer.pager.L2RPagerViewer
@@ -124,9 +126,10 @@ internal class PagerPanels(private val viewer: PagerViewer) {
      */
     fun move(toRight: Boolean): Boolean {
         val holder = currentHolder() ?: return false
+        // The image or its panels are still on their way: the first panel comes in a moment, the
+        // page stays (turning it would skip all its panels)
+        if (isPending(holder)) return true
         val state = states[holder] ?: return false
-        // The panels are still being found: the first one comes in a moment, the page stays
-        if (state.isPending(holder)) return true
         val image = holder.image()?.takeIf { it.isReady } ?: return false
         if (state.index !in state.stops.indices) return false
         val forward = toRight != (viewer is R2LPagerViewer)
@@ -227,8 +230,8 @@ internal class PagerPanels(private val viewer: PagerViewer) {
     private fun canSwipe(): Boolean {
         if (!prefs.enabled.get()) return false
         val holder = currentHolder() ?: return false
+        if (isPending(holder)) return true
         val state = states[holder] ?: return false
-        if (state.isPending(holder)) return true
         val image = holder.image()?.takeIf { it.isReady } ?: return false
         val stop = state.stops.getOrNull(state.index) ?: return false
         // Zoomed in by hand (pinch, double tap): let the reader pan. Zoomed out, a swipe still
@@ -238,13 +241,22 @@ internal class PagerPanels(private val viewer: PagerViewer) {
     }
 
     /**
-     * The holder has its image but not yet its first stop. For a short while moves wait for it
-     * instead of turning the page; a page whose image never comes (an error) does not hold them.
+     * The page on screen has no first stop yet: its image is loading, or its panels are being
+     * found. For a short while moves wait for it instead of turning the page. A page that fails
+     * to load, or an animated one (it never asks for panels), does not hold them.
      */
-    private fun HolderState.isPending(holder: PagerPageHolder): Boolean {
-        if (generation == 0) return false
-        if (stops.isNotEmpty() && index >= 0 && holder.image()?.isReady == true) return false
-        return SystemClock.uptimeMillis() - maxOf(requestedAt, selectedAt) < PENDING_MS
+    private fun isPending(holder: PagerPageHolder): Boolean {
+        val state = states[holder]
+        if (SystemClock.uptimeMillis() - maxOf(state?.requestedAt ?: 0L, selectedAt) >= PENDING_MS) return false
+        if (state == null || state.generation == 0) {
+            return !holder.hasPageView() && holder.page.status !is Page.State.Error
+        }
+        return state.stops.isEmpty() || state.index < 0 || holder.image()?.isReady != true
+    }
+
+    /** The holder shows an image, still or animated. */
+    private fun PagerPageHolder.hasPageView() = children.any {
+        (it is SubsamplingScaleImageView || it is ImageView) && it.visibility == View.VISIBLE
     }
 
     private fun refresh(holder: PagerPageHolder) {
