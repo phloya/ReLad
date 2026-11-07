@@ -6,7 +6,10 @@ server answers the app's OpenAI-format requests: a page image whose SHA-256 matc
 gets that page's saved answer; a text-only request (the second look) gets the saved second answer
 or an empty list of fixes.
 
-    python3 -I replay_server.py <live test out dir> <chapter dir> [<chapter dir> ...] [--port 8765]
+    python3 -I replay_server.py <live test out dir> <chapter dir> [<chapter dir> ...] [--port 8765] [--claude]
+
+--claude: the run was on Claude (pixel boxes, x first); they are turned into the 0-1000, y-first
+boxes the app expects from an OpenAI-format model (needs Pillow).
 
 In the app: AI provider "OpenAI-compatible", address http://10.0.2.2:8765/v1, any model and key.
 """
@@ -25,6 +28,25 @@ if "--port" in args:
     del args[i:i + 2]
 out_dir, chapter_dirs = args[0], args[1:]
 
+pixels_from = "--claude" in args
+if pixels_from:
+    args.remove("--claude")
+    out_dir, chapter_dirs = args[0], args[1:]
+
+
+def to_per_mille(answer, page_path):
+    """Claude answered [x1,y1,x2,y2] in pixels; the app asks OpenAI-format models for 0-1000, y first."""
+    from PIL import Image
+    width, height = Image.open(page_path).size
+    # A corrected second answer comes last, as in the app's own parser
+    data = json.JSONDecoder().raw_decode(answer, answer.rfind('{"regions"'))[0]
+    for region in data.get("regions", []):
+        x1, y1, x2, y2 = region["box"]
+        region["box"] = [round(y1 / height * 1000), round(x1 / width * 1000),
+                         round(y2 / height * 1000), round(x2 / width * 1000)]
+    return json.dumps(data, ensure_ascii=False)
+
+
 answers = {}
 for chapter_dir in chapter_dirs:
     chapter = os.path.basename(os.path.normpath(chapter_dir))
@@ -36,7 +58,10 @@ for chapter_dir in chapter_dirs:
         with open(os.path.join(chapter_dir, name), "rb") as f:
             digest = hashlib.sha256(f.read()).hexdigest()
         second = os.path.join(out_dir, "raw", f"{chapter}-{stem}-1.txt")
-        answers[digest] = (f"{chapter}/{name}", open(raw, encoding="utf-8").read(),
+        answer = open(raw, encoding="utf-8").read()
+        if pixels_from:
+            answer = to_per_mille(answer, os.path.join(chapter_dir, name))
+        answers[digest] = (f"{chapter}/{name}", answer,
                            open(second, encoding="utf-8").read() if os.path.exists(second) else None)
 last_page = {}
 
