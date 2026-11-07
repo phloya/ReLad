@@ -19,11 +19,19 @@ object PageBitmaps {
         return Size(options.outWidth, options.outHeight)
     }
 
-    /** Decodes [bytes] into a mutable ARGB bitmap no larger than [maxSide]. */
-    fun decode(bytes: ByteArray, maxSide: Int = MAX_SIDE): Bitmap {
+    /**
+     * Decodes [bytes] into a mutable ARGB bitmap, halved as many times as it takes to be at most [maxSide] on its long side
+     * and at most [maxPixels] in all (a webtoon strip may be long and still small enough in all).
+     */
+    fun decode(bytes: ByteArray, maxSide: Int = MAX_SIDE, maxPixels: Long = Long.MAX_VALUE): Bitmap {
         val size = size(bytes) ?: error("Not an image")
         var sample = 1
-        while (maxOf(size.width, size.height) / sample > maxSide) sample *= 2
+        while (
+            maxOf(size.width, size.height) / sample > maxSide ||
+            (size.width / sample).toLong() * (size.height / sample) > maxPixels
+        ) {
+            sample *= 2
+        }
         val options = BitmapFactory.Options().apply {
             inSampleSize = sample
             inPreferredConfig = Bitmap.Config.ARGB_8888

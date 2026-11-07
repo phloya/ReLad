@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -40,6 +41,12 @@ object TranslationParser {
     /** A translated page: its text regions and what the model noticed for the title's notes. */
     class Page(val regions: List<TextRegion>, val findings: PageFindings)
 
+    /**
+     * A part of the page the model got as one image: page rows [top] until [top] + [rows], sent as an
+     * image of [imageWidth] × [imageHeight]. A long strip goes in several parts (see [StripParts]).
+     */
+    class ImagePart(val top: Int, val rows: Int, val imageWidth: Int, val imageHeight: Int)
+
     fun parse(answer: String, pageWidth: Int, pageHeight: Int): List<TextRegion> =
         parsePage(answer, pageWidth, pageHeight).regions
 
@@ -55,7 +62,13 @@ object TranslationParser {
         units: BoxUnits = BoxUnits.PerMille,
         imageWidth: Int = pageWidth,
         imageHeight: Int = pageHeight,
-    ): Page {
+    ): Page = parseParts(answer, pageWidth, units, listOf(ImagePart(0, pageHeight, imageWidth, imageHeight)))
+
+    /**
+     * A page sent as [parts]: each region says which image it is in ("part", from 1; the first if it
+     * doesn't) and its box is in that image. Text in two overlapping parts is kept once.
+     */
+    fun parseParts(answer: String, pageWidth: Int, units: BoxUnits, parts: List<ImagePart>): Page {
         val root = root(answer)
         val items = when (root) {
             is JsonObject -> root["regions"] as? JsonArray ?: JsonArray(emptyList())
@@ -65,12 +78,25 @@ object TranslationParser {
         val pixels = units == BoxUnits.Pixels ||
             items.any { item -> numbers(item.boxElement()).orEmpty().any { it > PER_MILLE } }
         val xFirst = units == BoxUnits.Pixels
-        val scale = if (pixels) {
-            Scale(imageWidth.toDouble(), imageHeight.toDouble(), pageWidth, pageHeight, xFirst)
-        } else {
-            Scale(PER_MILLE, PER_MILLE, pageWidth, pageHeight, xFirst)
+        val found = items.mapNotNull { item ->
+            val number = (item["part"] as? JsonPrimitive)?.doubleOrNull?.toInt() ?: 1
+            val index = number.coerceIn(1, parts.size) - 1
+            val part = parts[index]
+            val scale = if (pixels) {
+                Scale(part.imageWidth.toDouble(), part.imageHeight.toDouble(), pageWidth, part.rows, xFirst)
+            } else {
+                Scale(PER_MILLE, PER_MILLE, pageWidth, part.rows, xFirst)
+            }
+            region(item, scale)?.let { region ->
+                if (part.top == 0) {
+                    region
+                } else {
+                    val box = region.box
+                    region.copy(box = Box(box.left, box.top + part.top, box.right, box.bottom + part.top))
+                }
+            }
         }
-        val regions = items.mapNotNull { item -> region(item, scale) }
+        val regions = if (parts.size > 1) StripParts.withoutRepeats(found) else found
         val obj = root as? JsonObject
         val findings = PageFindings(
             characters = obj.list("new_characters").mapNotNull(::character),
@@ -186,7 +212,7 @@ object TranslationParser {
     }
 
     private fun JsonObject.string(key: String): String? =
-        (this[key] as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+        (this[key] as? JsonPrimitive)?.contentOrNull
 
     private val UNSURE = setOf("unsure", "unknown", "none", "null", "?", "narrator")
     private const val PER_MILLE = 1000.0
