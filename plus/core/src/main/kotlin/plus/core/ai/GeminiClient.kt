@@ -51,9 +51,14 @@ class GeminiClient(
             putJsonObject("generationConfig") {
                 put("maxOutputTokens", request.maxOutputTokens)
                 when {
-                    request.imageOutput -> putJsonArray("responseModalities") {
-                        add("TEXT")
-                        add("IMAGE")
+                    request.imageOutput -> {
+                        putJsonArray("responseModalities") {
+                            add("TEXT")
+                            add("IMAGE")
+                        }
+                        request.imageAspectRatio?.let { ratio ->
+                            putJsonObject("imageConfig") { put("aspectRatio", ratio) }
+                        }
                     }
                     request.jsonOutput -> put("responseMimeType", "application/json")
                 }

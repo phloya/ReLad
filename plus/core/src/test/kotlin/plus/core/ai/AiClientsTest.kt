@@ -129,6 +129,29 @@ class AiClientsTest {
     }
 
     @Test
+    fun `Gemini image output asks for images and the wanted shape`() = runTest {
+        val server = FakeServer(
+            body = """{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"AQID"}}]}}]}""",
+        )
+        val client = AiClients.create(config(AiProviderType.Gemini), "g", server.client)
+
+        val answer = client.send(
+            AiRequest(
+                null,
+                "Colorize.",
+                listOf(AiImage(png, "image/png")),
+                imageOutput = true,
+                imageAspectRatio = "2:3",
+            ),
+        )
+
+        answer.images.single().bytes.toList() shouldBe listOf<Byte>(1, 2, 3)
+        val config = server.json["generationConfig"]!!.jsonObject
+        config["responseModalities"]!!.jsonArray.map { it.jsonPrimitive.content } shouldBe listOf("TEXT", "IMAGE")
+        config["imageConfig"]!!.jsonObject["aspectRatio"]!!.jsonPrimitive.content shouldBe "2:3"
+    }
+
+    @Test
     fun `Gemini blocked prompt is a readable error`() = runTest {
         val server = FakeServer(body = """{"promptFeedback":{"blockReason":"SAFETY"}}""")
         val client = AiClients.create(config(AiProviderType.Gemini), "g", server.client)

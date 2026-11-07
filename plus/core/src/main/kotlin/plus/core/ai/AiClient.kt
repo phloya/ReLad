@@ -36,6 +36,11 @@ class AiRequest(
     val images: List<AiImage> = emptyList(),
     /** Ask the model for an image back (colorization). Not every provider or model can do it. */
     val imageOutput: Boolean = false,
+    /**
+     * Wanted shape of the returned image ("2:3", "3:4"...), where the API lets us say it
+     * (Gemini `imageConfig.aspectRatio`). Otherwise models usually keep the input's shape.
+     */
+    val imageAspectRatio: String? = null,
     /** Ask for a JSON answer where the API supports a JSON mode. The prompt must describe the format too. */
     val jsonOutput: Boolean = false,
     val maxOutputTokens: Int = 16_384,
