@@ -9,6 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -27,9 +28,9 @@ class GeminiClient(
 
     override fun buildRequest(request: AiRequest, apiKey: String): Request {
         val body = buildJsonObject {
-            if (request.system != null) {
+            request.fullSystem?.let { system ->
                 putJsonObject("systemInstruction") {
-                    putJsonArray("parts") { addJsonObject { put("text", request.system) } }
+                    putJsonArray("parts") { addJsonObject { put("text", system) } }
                 }
             }
             putJsonArray("contents") {
@@ -62,6 +63,10 @@ class GeminiClient(
                     }
                     request.jsonOutput -> put("responseMimeType", "application/json")
                 }
+                // Gemini 3 and later take a level; "low" is the one every such model accepts
+                if (request.effort == AiEffort.Low && takesThinkingLevel()) {
+                    putJsonObject("thinkingConfig") { put("thinkingLevel", "low") }
+                }
             }
         }
         val model = config.model.removePrefix("models/")
@@ -70,6 +75,11 @@ class GeminiClient(
             .header("x-goog-api-key", apiKey)
             .post(jsonBody(body))
             .build()
+    }
+
+    private fun takesThinkingLevel(): Boolean {
+        val model = config.model.removePrefix("models/")
+        return model.startsWith("gemini-3") || model.startsWith("gemini-4")
     }
 
     override fun parseResponse(body: JsonObject): AiResponse {
@@ -96,6 +106,17 @@ class GeminiClient(
             val reason = candidate["finishReason"]?.jsonPrimitive?.contentOrNull
             throw AiException("${config.name}: empty answer ($reason)", AiException.Kind.BadResponse)
         }
-        return AiResponse(text, images)
+        return AiResponse(text, images, usage(body))
+    }
+
+    /** `promptTokenCount` already includes the cached part; reasoning comes as `thoughtsTokenCount`. */
+    private fun usage(body: JsonObject): AiUsage? {
+        val usage = body["usageMetadata"] as? JsonObject ?: return null
+        fun n(key: String) = usage[key]?.jsonPrimitive?.longOrNull ?: 0L
+        return AiUsage(
+            inputTokens = n("promptTokenCount"),
+            cachedInputTokens = n("cachedContentTokenCount"),
+            outputTokens = n("candidatesTokenCount") + n("thoughtsTokenCount"),
+        )
     }
 }
