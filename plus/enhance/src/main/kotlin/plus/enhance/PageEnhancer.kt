@@ -5,10 +5,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import plus.core.ai.AiException
 import plus.core.image.PageBitmaps
 import plus.core.pipeline.PageContext
 import plus.core.pipeline.PageProcessor
 import plus.core.pipeline.ProcessedPage
+import plus.enhance.cloud.ReplicateModel
+import plus.enhance.cloud.ReplicateUpscaler
 
 /**
  * The enhancement step of the page pipeline: whitens the paper, removes noise and JPEG blocks and
@@ -28,7 +31,12 @@ class PageEnhancer(
         /** Pages already larger than this on their longest side are left as they are. */
         val maxInputSide: Int,
         val models: Map<Strength, EnhanceModel> = EnhanceModels.cugan,
+        /** Not `null`: upscale on Replicate instead of the phone. */
+        val cloud: Cloud? = null,
     )
+
+    /** [upscaler] is `null` when no token is saved. */
+    class Cloud(val upscaler: ReplicateUpscaler?, val model: ReplicateModel)
 
     override val id = "enhance"
     override val order = 200
@@ -39,6 +47,11 @@ class PageEnhancer(
 
     override fun signature(context: PageContext): String {
         val s = settings()
+        s.cloud?.let { cloud ->
+            val m = cloud.model
+            val common = "white=${s.whitenPaper}|max=${s.maxInputSide}"
+            return "v$VERSION|replicate|${m.model}|${m.imageField}|${m.extraInput}|$common"
+        }
         val models = s.models.values.joinToString(",") { it.id }
         return "v$VERSION|${s.strength ?: "auto"}|white=${s.whitenPaper}|max=${s.maxInputSide}|$models"
     }
@@ -47,6 +60,7 @@ class PageEnhancer(
         val s = settings()
         val size = PageBitmaps.size(input) ?: error("Not an image")
         if (maxOf(size.width, size.height) > s.maxInputSide) return ProcessedPage(input)
+        s.cloud?.let { return processInCloud(input, size, s, it) }
 
         val strength = s.strength ?: ScanQuality.strengthFor(input)
         val model = s.models.getValue(strength)
@@ -70,12 +84,52 @@ class PageEnhancer(
                     strength = strength,
                     jpegQuality = ScanQuality.jpegQuality(input),
                     whitened = whitened,
+                    cloudModel = null,
                 )
                 val bytes = PageBitmaps.encode(result, Bitmap.CompressFormat.JPEG, quality = 95)
                 result.recycle()
                 ProcessedPage(bytes)
             }
         }
+    }
+
+    private suspend fun processInCloud(
+        input: ByteArray,
+        size: PageBitmaps.Size,
+        s: Settings,
+        cloud: Cloud,
+    ): ProcessedPage {
+        val upscaler = cloud.upscaler ?: throw AiException("No Replicate token", AiException.Kind.NoKey)
+        val started = System.currentTimeMillis()
+        // Whitening is cheap and makes the model's job easier; the page is sent as it is otherwise
+        var whitened = false
+        val page = if (s.whitenPaper) {
+            withContext(Dispatchers.Default) {
+                val bitmap = PageBitmaps.decode(input)
+                try {
+                    whitened = whiten(bitmap)
+                    if (whitened) PageBitmaps.encode(bitmap, Bitmap.CompressFormat.JPEG, quality = 95) else input
+                } finally {
+                    bitmap.recycle()
+                }
+            }
+        } else {
+            input
+        }
+        val result = upscaler.upscale(page, PageBitmaps.mimeType(page), cloud.model)
+        PageBitmaps.size(result)
+            ?: throw AiException("Replicate returned something that is not an image", AiException.Kind.BadResponse)
+        lastRun = Run(
+            width = size.width,
+            height = size.height,
+            millis = System.currentTimeMillis() - started,
+            gpu = false,
+            strength = null,
+            jpegQuality = ScanQuality.jpegQuality(input),
+            whitened = whitened,
+            cloudModel = cloud.model.name,
+        )
+        return ProcessedPage(result)
     }
 
     /** Whitens the paper of [bitmap] in place; `false` if the page was left as it is. */
@@ -94,9 +148,12 @@ class PageEnhancer(
         val height: Int,
         val millis: Long,
         val gpu: Boolean,
-        val strength: Strength,
+        /** `null` in the cloud. */
+        val strength: Strength?,
         val jpegQuality: Int?,
         val whitened: Boolean,
+        /** Set when the page was upscaled on Replicate. */
+        val cloudModel: String?,
     )
 
     @Volatile

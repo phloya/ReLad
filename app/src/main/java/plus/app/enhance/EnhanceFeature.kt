@@ -29,6 +29,9 @@ import plus.enhance.ModelStore
 import plus.enhance.NativeUpscaler
 import plus.enhance.PageEnhancer
 import plus.enhance.Strength
+import plus.enhance.cloud.ReplicateModel
+import plus.enhance.cloud.ReplicateModels
+import plus.enhance.cloud.ReplicateUpscaler
 import tachiyomi.presentation.core.util.collectAsState
 import java.io.File
 
@@ -50,6 +53,7 @@ object EnhanceFeature : PlusFeature {
                 whitenPaper = prefs.whitenPaper.get(),
                 useGpu = prefs.useGpu.get(),
                 maxInputSide = prefs.maxInputSide.get(),
+                cloud = prefs.cloud(graph),
             )
         },
         store = store(graph).also { store ->
@@ -74,8 +78,38 @@ internal class EnhancePreferences(graph: PlusGraph) {
     val maxInputSide = prefs.int(EnhanceFeature.id, "max_side", 2200)
     val allowNonCommercial = prefs.boolean(EnhanceFeature.id, "non_commercial", false)
 
+    /** [DEVICE] or [REPLICATE]. */
+    val backend = prefs.string(EnhanceFeature.id, "backend", DEVICE)
+
+    /** A [ReplicateModels] preset id or [ReplicateModel.CUSTOM]. */
+    val replicateModel = prefs.string(EnhanceFeature.id, "replicate_model", ReplicateModels.realEsrgan.id)
+    val replicateCustomModel = prefs.string(EnhanceFeature.id, "replicate_custom_model", "")
+    val replicateCustomField = prefs.string(EnhanceFeature.id, "replicate_custom_field", "image")
+    val replicateCustomInput = prefs.string(EnhanceFeature.id, "replicate_custom_input", "{}")
+
+    /** Only changed in development builds, to test against a local fake server. */
+    val replicateBaseUrl = prefs.string(EnhanceFeature.id, "replicate_base_url", ReplicateUpscaler.DEFAULT_BASE_URL)
+
     /** `null` for automatic. */
     fun fixedStrength(): Strength? = Strength.entries.firstOrNull { it.name == strength.get() }
+
+    fun replicateModel(): ReplicateModel = ReplicateModels.byId(replicateModel.get()) ?: ReplicateModel(
+        id = ReplicateModel.CUSTOM,
+        name = replicateCustomModel.get().ifBlank { "?" },
+        model = replicateCustomModel.get().trim(),
+        imageField = replicateCustomField.get().trim().ifEmpty { "image" },
+        extraInput = replicateCustomInput.get().ifBlank { "{}" },
+        license = "?",
+        price = "?",
+    )
+
+    /** Settings for upscaling on Replicate, or `null` when pages are enhanced on the phone. */
+    fun cloud(graph: PlusGraph): PageEnhancer.Cloud? {
+        if (backend.get() != REPLICATE) return null
+        val token = graph.secrets.get(REPLICATE_TOKEN)
+        val upscaler = token?.let { ReplicateUpscaler(graph.httpClient, it, replicateBaseUrl.get()) }
+        return PageEnhancer.Cloud(upscaler, replicateModel())
+    }
 
     /** Models the current setting may use: all strengths in automatic mode. */
     fun models(): List<EnhanceModel> = fixedStrength()?.let { listOf(EnhanceModels.cugan.getValue(it)) }
@@ -83,6 +117,11 @@ internal class EnhancePreferences(graph: PlusGraph) {
 
     companion object {
         const val AUTO = "auto"
+        const val DEVICE = "device"
+        const val REPLICATE = "replicate"
+
+        /** [plus.core.secret.SecretStore] id of the Replicate API token. */
+        const val REPLICATE_TOKEN = "enhance_replicate"
     }
 }
 
@@ -96,6 +135,8 @@ class EnhanceSettingsScreen : Screen() {
         val graph = remember { Plus.graph(context) }
         val prefs = remember { EnhancePreferences(graph) }
         val store = remember { EnhanceFeature.store(graph) }
+        val backend by prefs.backend.collectAsState()
+        val onDevice = backend != EnhancePreferences.REPLICATE
         val strength by prefs.strength.collectAsState()
         val models = remember(strength) { prefs.models() }
         val model = models.first()
@@ -106,6 +147,9 @@ class EnhanceSettingsScreen : Screen() {
         }
         val gpuName = remember { runCatching { NativeUpscaler.gpuName }.getOrNull() }
         val lastRun = EnhanceFeature.lastRun
+        val replicateModel by prefs.replicateModel.collectAsState()
+        val cloudModelName = remember(replicateModel) { prefs.replicateModel().name }
+        val hasToken = remember(backend) { graph.secrets.get(EnhancePreferences.REPLICATE_TOKEN) != null }
 
         Scaffold(
             topBar = { AppBar(title = stringResource(R.string.plus_feature_enhance), navigateUp = navigator::pop) },
@@ -119,6 +163,29 @@ class EnhanceSettingsScreen : Screen() {
                         subtitle = stringResource(R.string.plus_feature_enhance_summary),
                     ),
                     Preference.PreferenceItem.ListPreference(
+                        preference = prefs.backend,
+                        entries = mapOf(
+                            EnhancePreferences.DEVICE to stringResource(R.string.plus_enhance_backend_device),
+                            EnhancePreferences.REPLICATE to stringResource(R.string.plus_enhance_backend_replicate),
+                        ),
+                        title = stringResource(R.string.plus_enhance_backend),
+                    ),
+                    Preference.PreferenceItem.TextPreference(
+                        title = stringResource(R.string.plus_enhance_replicate_settings),
+                        subtitle = stringResource(
+                            R.string.plus_enhance_replicate_summary,
+                            cloudModelName,
+                            stringResource(
+                                if (hasToken) {
+                                    R.string.plus_enhance_replicate_token_saved
+                                } else {
+                                    R.string.plus_enhance_replicate_token_missing
+                                },
+                            ),
+                        ),
+                        onClick = { navigator.push(EnhanceReplicateScreen()) },
+                    ).takeIf { !onDevice },
+                    Preference.PreferenceItem.ListPreference(
                         preference = prefs.strength,
                         entries = mapOf(
                             EnhancePreferences.AUTO to stringResource(R.string.plus_enhance_strength_auto),
@@ -129,7 +196,7 @@ class EnhanceSettingsScreen : Screen() {
                         ),
                         title = stringResource(R.string.plus_enhance_strength),
                         subtitle = "%s\n" + stringResource(R.string.plus_enhance_strength_summary),
-                    ),
+                    ).takeIf { onDevice },
                     Preference.PreferenceItem.SwitchPreference(
                         preference = prefs.whitenPaper,
                         title = stringResource(R.string.plus_enhance_whiten),
@@ -150,7 +217,7 @@ class EnhanceSettingsScreen : Screen() {
                         } else {
                             stringResource(R.string.plus_enhance_gpu_missing)
                         },
-                    ),
+                    ).takeIf { onDevice },
                     Preference.PreferenceItem.TextPreference(
                         title = stringResource(R.string.plus_enhance_model) + ": " + model.name,
                         subtitle = stringResource(
@@ -158,7 +225,7 @@ class EnhanceSettingsScreen : Screen() {
                             model.license.name,
                             Formatter.formatShortFileSize(context, models.sumOf { it.downloadBytes }),
                         ) + (downloadState?.let { "\n$it" } ?: ""),
-                    ),
+                    ).takeIf { onDevice },
                     Preference.PreferenceItem.TextPreference(
                         title = stringResource(R.string.plus_enhance_download),
                         onClick = {
@@ -172,36 +239,45 @@ class EnhanceSettingsScreen : Screen() {
                                 }
                             }
                         },
-                    ).takeIf { !models.all(store::isDownloaded) },
+                    ).takeIf { onDevice && !models.all(store::isDownloaded) },
                     Preference.PreferenceItem.SwitchPreference(
                         preference = prefs.allowNonCommercial,
                         title = stringResource(R.string.plus_enhance_non_commercial),
                         subtitle = stringResource(R.string.plus_enhance_non_commercial_summary),
-                    ).takeIf { EnhanceModels.all.any { !it.license.commercialUse } },
-                    lastRun?.let {
-                        Preference.PreferenceItem.InfoPreference(
-                            stringResource(
-                                R.string.plus_enhance_last_run,
-                                it.width,
-                                it.height,
-                                it.millis / 1000f,
-                                stringResource(
-                                    if (it.gpu) R.string.plus_enhance_on_gpu else R.string.plus_enhance_on_cpu,
-                                ),
-                                stringResource(strengthName(it.strength)).lowercase(),
-                            ) +
-                                (
-                                    it.jpegQuality?.let { q -> stringResource(R.string.plus_enhance_last_run_jpeg, q) }
-                                        ?: ""
-                                    ) +
-                                (if (it.whitened) stringResource(R.string.plus_enhance_last_run_whitened) else ""),
-                        )
-                    },
-                    Preference.PreferenceItem.InfoPreference(stringResource(R.string.plus_enhance_how)),
+                    ).takeIf { onDevice && EnhanceModels.all.any { !it.license.commercialUse } },
+                    lastRun?.let { Preference.PreferenceItem.InfoPreference(lastRunText(it)) },
+                    Preference.PreferenceItem.InfoPreference(
+                        stringResource(if (onDevice) R.string.plus_enhance_how else R.string.plus_enhance_how_cloud),
+                    ),
                 ),
             )
         }
     }
+}
+
+@Composable
+private fun lastRunText(run: PageEnhancer.Run): String {
+    val main = if (run.cloudModel != null) {
+        stringResource(
+            R.string.plus_enhance_last_run_cloud,
+            run.width,
+            run.height,
+            run.millis / 1000f,
+            run.cloudModel!!,
+        )
+    } else {
+        stringResource(
+            R.string.plus_enhance_last_run,
+            run.width,
+            run.height,
+            run.millis / 1000f,
+            stringResource(if (run.gpu) R.string.plus_enhance_on_gpu else R.string.plus_enhance_on_cpu),
+            run.strength?.let { stringResource(strengthName(it)).lowercase() } ?: "",
+        )
+    }
+    val jpeg = run.jpegQuality?.let { stringResource(R.string.plus_enhance_last_run_jpeg, it) } ?: ""
+    val whitened = if (run.whitened) stringResource(R.string.plus_enhance_last_run_whitened) else ""
+    return main + jpeg + whitened
 }
 
 private fun strengthName(strength: Strength) = when (strength) {
