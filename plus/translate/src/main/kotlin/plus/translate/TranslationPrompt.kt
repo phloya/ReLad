@@ -79,7 +79,8 @@ object TranslationPrompt {
               clear; otherwise "unsure". Narration and sound effects: "unsure".
             - "text": the original text exactly as written. "translation": your translation.
             - Regions in reading order. ${source.readingOrder} One bubble = one region, even with several lines.
-            - "new_characters": named characters not in the Characters list who appear or are named on this page:
+            - "new_characters": named characters who appear or are named on this page and are not in the Characters
+              list yet, or are listed without gender or speech and now show it:
               "original" in the source script, "name" as you wrote it, "gender" male/female/other/unknown,
               "speech": how they talk, in a few words (register, how they refer to themselves, verbal tics);
               "" if they don't speak yet.

@@ -85,7 +85,9 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
         response.usage?.let(usage::add)
         val answer = response.text ?: throw AiException("The model sent no text", AiException.Kind.BadResponse)
         val page = TranslationParser.parsePage(answer, width, height, units, image.width, image.height)
-        var regions = page.regions.filter { translateSoundEffects || it.type.erasesOriginal }
+        var regions = page.regions
+            .filter { translateSoundEffects || it.type.erasesOriginal }
+            .map { it.copy(translation = Orthography.fix(language.code, it.translation)) }
 
         // Free checks on the phone; only flagged lines go back for a second look, as text
         val problems = TranslationChecks.check(regions, bible)
@@ -104,7 +106,7 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
                 fix.usage?.let(usage::add)
                 val fixes = fix.text?.let(TranslationParser::parseFixes).orEmpty()
                 regions = regions.mapIndexed { index, region ->
-                    fixes[index]?.let { region.copy(translation = it) } ?: region
+                    fixes[index]?.let { region.copy(translation = Orthography.fix(language.code, it)) } ?: region
                 }
             } catch (e: AiException) {
                 // The first translation is still good enough to show
