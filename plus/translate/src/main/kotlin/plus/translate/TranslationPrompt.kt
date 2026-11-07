@@ -78,7 +78,7 @@ object TranslationPrompt {
             - "box": tight box around the text itself (for bubbles: the text inside, not the whole bubble),
               {UNITS}.
             - "speaker": the original name (as in the Characters list) of who says it, only if the art makes it
-              clear; otherwise "unsure". Narration and sound effects: "unsure".
+              clear; otherwise leave "speaker" out. Narration and sound effects: no "speaker".
             - "text": the original text exactly as written. "translation": your translation.
             - Regions in reading order. ${source.readingOrder} One bubble = one region, even with several
               lines; separate bubbles are separate regions, even when one sentence runs on from one to the next.
@@ -90,7 +90,7 @@ object TranslationPrompt {
             - "new_terms": names of places, groups, techniques, ranks, items, creatures or catchphrases not in the
               Glossary that should stay the same later. "kind": place, organization, technique, title, item,
               creature, catchphrase or other. Ordinary words are not terms.
-            - "summary": one or two sentences on what happens on this page and between whom.
+            - "summary": one short sentence on what happens on this page and between whom.
             - A page with no text: {"regions":[],"summary":"…"}.
         """.trimIndent()
             .replace(

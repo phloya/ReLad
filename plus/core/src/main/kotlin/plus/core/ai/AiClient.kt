@@ -52,18 +52,34 @@ class AiRequest(
      */
     val stableSystem: String? = null,
     /**
-     * How much hidden reasoning the model may spend: reasoning is billed as output, the dearest part.
-     * Sent only where the model is known to take it (Claude 4.6+ `effort`, Gemini 3+ `thinkingLevel`
-     * for [AiEffort.Low]); elsewhere the model's own default stays. `null`: the model's default.
+     * How much hidden reasoning the model may spend: reasoning is billed as output, the dearest part,
+     * and the model writes it before the answer, so it is also most of the waiting. Sent only where
+     * the model is known to take it (Claude 4.6+ `effort` and `thinking`, OpenRouter `reasoning`,
+     * Gemini 3+ `thinkingLevel` for [AiEffort.Low] and [AiEffort.None]); elsewhere the model's own
+     * default stays. `null`: the model's default.
      */
     val effort: AiEffort? = null,
 ) {
+    fun withEffort(effort: AiEffort?) = AiRequest(
+        system = system,
+        prompt = prompt,
+        images = images,
+        imageOutput = imageOutput,
+        imageAspectRatio = imageAspectRatio,
+        jsonOutput = jsonOutput,
+        maxOutputTokens = maxOutputTokens,
+        stableSystem = stableSystem,
+        effort = effort,
+    )
+
     /** The whole system prompt, for APIs that take one text. */
     val fullSystem: String?
         get() = listOfNotNull(stableSystem, system).joinToString("\n\n").ifEmpty { null }
 }
 
 enum class AiEffort(val wire: String) {
+    /** No hidden reasoning where the model can answer without; otherwise the least it takes. */
+    None("none"),
     Low("low"),
     Medium("medium"),
     High("high"),

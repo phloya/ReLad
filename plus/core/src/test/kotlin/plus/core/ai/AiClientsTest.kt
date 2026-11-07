@@ -287,6 +287,64 @@ class AiClientsTest {
     }
 
     @Test
+    fun `no reasoning turns thinking off where the model allows it`() = runTest {
+        val none = AiRequest(system = null, prompt = "p", effort = AiEffort.None)
+        val claudeAnswer = """{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}"""
+
+        suspend fun claude(model: String): FakeServer {
+            val server = FakeServer(body = claudeAnswer)
+            AiClients.create(config(AiProviderType.Anthropic).copy(model = model), "k", server.client).send(none)
+            return server
+        }
+        val haiku = claude("claude-haiku-5-5")
+        haiku.json["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content shouldBe "disabled"
+        haiku.json["output_config"]!!.jsonObject["effort"]!!.jsonPrimitive.content shouldBe "low"
+        claude("claude-sonnet-5-5").json["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content shouldBe
+            "between_tools"
+        // Can't be turned off: the least effort only
+        val opus = claude("claude-opus-5-5")
+        opus.json.containsKey("thinking") shouldBe false
+        opus.json["output_config"]!!.jsonObject["effort"]!!.jsonPrimitive.content shouldBe "low"
+
+        val openRouter = FakeServer(body = """{"choices":[{"message":{"content":"ok"}}]}""")
+        AiClients.create(config(AiProviderType.OpenAiCompatible), "k", openRouter.client).send(none)
+        openRouter.json["reasoning"]!!.jsonObject["effort"]!!.jsonPrimitive.content shouldBe "none"
+    }
+
+    @Test
+    fun `an OpenRouter model that must reason is asked again with low reasoning`() = runTest {
+        val efforts = mutableListOf<String>()
+        val client = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val buffer = Buffer()
+                chain.request().body!!.writeTo(buffer)
+                val effort = Json.parseToJsonElement(buffer.readUtf8()).jsonObject["reasoning"]!!
+                    .jsonObject["effort"]!!.jsonPrimitive.content
+                efforts += effort
+                val rejected = effort == "none"
+                val body = if (rejected) {
+                    """{"error":{"message":"Reasoning is mandatory for this endpoint"}}"""
+                } else {
+                    """{"choices":[{"message":{"content":"ok"}}]}"""
+                }
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(if (rejected) 400 else 200)
+                    .message("fake")
+                    .body(body.toResponseBody("application/json".toMediaType()))
+                    .build()
+            }
+            .build()
+        val provider = config(AiProviderType.OpenAiCompatible).copy(model = "some/always-thinking-model")
+        val none = AiRequest(system = null, prompt = "p", effort = AiEffort.None)
+        AiClients.create(provider, "k", client).send(none).text shouldBe "ok"
+        // Remembered: the next page goes with "low" at once
+        AiClients.create(provider, "k", client).send(none).text shouldBe "ok"
+        efforts shouldBe listOf("none", "low", "low")
+    }
+
+    @Test
     fun `too many requests are asked again after a wait`() = runTest {
         var calls = 0
         val client = OkHttpClient.Builder()

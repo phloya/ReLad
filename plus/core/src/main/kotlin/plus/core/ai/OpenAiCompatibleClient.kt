@@ -16,6 +16,7 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * OpenAI Chat Completions format (`POST {baseUrl}/chat/completions`), spoken by OpenAI, OpenRouter
@@ -25,13 +26,27 @@ import okhttp3.Request
  * Deliberately sends no `temperature`, `max_tokens` or `response_format`: newer OpenAI models reject
  * some of them and many OpenRouter models ignore or reject the rest. Prompts ask for JSON instead.
  * The wanted reasoning effort goes only to OpenRouter, whose one `reasoning` setting every model
- * that thinks takes (and the others ignore); other servers may reject the field.
+ * that thinks takes (and the others ignore); other servers may reject the field. A model that must
+ * reason and rejects "none" is asked again with "low", and from then on gets "low".
  */
 class OpenAiCompatibleClient(
     config: AiProviderConfig,
     apiKey: String?,
     client: OkHttpClient,
 ) : HttpAiClient(config, apiKey, client) {
+
+    override suspend fun send(request: AiRequest): AiResponse {
+        val noReasoning = request.effort == AiEffort.None && isOpenRouter()
+        if (noReasoning && config.model in mustReason) return super.send(request.withEffort(AiEffort.Low))
+        return try {
+            super.send(request)
+        } catch (e: AiException) {
+            if (!noReasoning || e.httpCode != BAD_REQUEST) throw e
+            val answer = super.send(request.withEffort(AiEffort.Low))
+            mustReason += config.model
+            answer
+        }
+    }
 
     override fun buildRequest(request: AiRequest, apiKey: String): Request {
         val body = buildJsonObject {
@@ -119,5 +134,12 @@ class OpenAiCompatibleClient(
             outputTokens = n(usage, "completion_tokens"),
             reportedCostUsd = usage["cost"]?.jsonPrimitive?.doubleOrNull,
         )
+    }
+
+    private companion object {
+        const val BAD_REQUEST = 400
+
+        /** OpenRouter models that rejected "none": they can't answer without reasoning. */
+        val mustReason: MutableSet<String> = ConcurrentHashMap.newKeySet()
     }
 }
