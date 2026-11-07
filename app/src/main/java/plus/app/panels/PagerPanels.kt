@@ -47,6 +47,7 @@ internal class PagerPanels(private val viewer: PagerViewer) {
 
     private var currentPage: ReaderPage? = null
     private var enteredForward = true
+    private var selectedAt = 0L
     private var animatingUntil = 0L
 
     @Volatile
@@ -68,6 +69,9 @@ internal class PagerPanels(private val viewer: PagerViewer) {
         /** The stop shown, -1 before the first one. */
         var index = -1
         var watchesLayout = false
+
+        /** When the holder got its image and asked for its panels. */
+        @Volatile var requestedAt = 0L
     }
 
     private class Touch(val x: Float, val y: Float) {
@@ -79,6 +83,7 @@ internal class PagerPanels(private val viewer: PagerViewer) {
     fun onImage(holder: PagerPageHolder, image: BufferedSource) {
         val state = synchronized(states) { states.getOrPut(holder) { HolderState() } }
         val generation = ++state.generation
+        state.requestedAt = SystemClock.uptimeMillis()
         holder.onImageLoaded = { refresh(holder) }
         askSourceLanguage()
         // The previous layout stays until the new one is ready: a translated or enhanced version
@@ -99,6 +104,7 @@ internal class PagerPanels(private val viewer: PagerViewer) {
     fun onPageSelected(page: ReaderPage, forward: Boolean) {
         currentPage = page
         enteredForward = forward
+        selectedAt = SystemClock.uptimeMillis()
         if (!prefs.enabled.get()) return
         holders().forEach { holder ->
             val state = states[holder] ?: return@forEach
@@ -119,6 +125,8 @@ internal class PagerPanels(private val viewer: PagerViewer) {
     fun move(toRight: Boolean): Boolean {
         val holder = currentHolder() ?: return false
         val state = states[holder] ?: return false
+        // The panels are still being found: the first one comes in a moment, the page stays
+        if (state.isPending(holder)) return true
         val image = holder.image()?.takeIf { it.isReady } ?: return false
         if (state.index !in state.stops.indices) return false
         val forward = toRight != (viewer is R2LPagerViewer)
@@ -220,11 +228,23 @@ internal class PagerPanels(private val viewer: PagerViewer) {
         if (!prefs.enabled.get()) return false
         val holder = currentHolder() ?: return false
         val state = states[holder] ?: return false
+        if (state.isPending(holder)) return true
         val image = holder.image()?.takeIf { it.isReady } ?: return false
         val stop = state.stops.getOrNull(state.index) ?: return false
-        // Zoomed in by hand (pinch, double tap): let the reader pan
+        // Zoomed in by hand (pinch, double tap): let the reader pan. Zoomed out, a swipe still
+        // goes on to the next panel
         val animating = SystemClock.uptimeMillis() < animatingUntil
-        return animating || abs(image.scale / stop.scale - 1f) < 0.2f
+        return animating || image.scale <= stop.scale * 1.2f
+    }
+
+    /**
+     * The holder has its image but not yet its first stop. For a short while moves wait for it
+     * instead of turning the page; a page whose image never comes (an error) does not hold them.
+     */
+    private fun HolderState.isPending(holder: PagerPageHolder): Boolean {
+        if (generation == 0) return false
+        if (stops.isNotEmpty() && index >= 0 && holder.image()?.isReady == true) return false
+        return SystemClock.uptimeMillis() - maxOf(requestedAt, selectedAt) < PENDING_MS
     }
 
     private fun refresh(holder: PagerPageHolder) {
@@ -294,8 +314,14 @@ internal class PagerPanels(private val viewer: PagerViewer) {
         val stop = state.stops[index]
         val center = PointF(stop.centerX, stop.centerY)
         val smooth = animate && viewer.config.usePageTransitions
+        val duration = if (smooth) {
+            (ANIMATION_MS * viewer.activity.animatorDurationScale).toLong().coerceAtLeast(
+                1,
+            )
+        } else {
+            0L
+        }
         if (smooth) {
-            val duration = (ANIMATION_MS * viewer.activity.animatorDurationScale).toLong().coerceAtLeast(1)
             image.animateScaleAndCenter(stop.scale, center)
                 ?.withDuration(duration)
                 ?.withEasing(SubsamplingScaleImageView.EASE_IN_OUT_QUAD)
@@ -309,7 +335,14 @@ internal class PagerPanels(private val viewer: PagerViewer) {
         // weakly, and a value pointing back into the holder would keep it alive
         val overlay = holder.children.filterIsInstance<PanelFocusView>().firstOrNull()
             ?: PanelFocusView(holder.context, image).also { holder.addView(it, MATCH_PARENT, MATCH_PARENT) }
-        overlay.show(stop.focus?.let { RectF(it.left, it.top, it.right, it.bottom) }, prefs.dimOthers.get(), smooth)
+        overlay.show(
+            stop.focus?.let {
+                RectF(it.left, it.top, it.right, it.bottom)
+            },
+            prefs.dimOthers.get(),
+            stop.scale,
+            duration,
+        )
     }
 
     private fun HolderState.isShownOn(image: SubsamplingScaleImageView): Boolean {
@@ -368,5 +401,8 @@ internal class PagerPanels(private val viewer: PagerViewer) {
 
     companion object {
         private const val ANIMATION_MS = 320L
+
+        /** How long moves wait for a page's panels before they turn the page after all. */
+        private const val PENDING_MS = 3000L
     }
 }

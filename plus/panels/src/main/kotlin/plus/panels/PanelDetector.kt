@@ -17,17 +17,22 @@ import kotlin.math.roundToInt
  * 4. A piece that is really two panels joined by a speech balloon or an arm crossing the gutter
  *    is cut where a band of mostly gutter crosses it.
  * 5. Pieces that mostly overlap are merged.
+ * 6. A small piece beside a big panel whose facing edge is no straight border (a corner that
+ *    a balloon touching the page edge cut off) is joined back to that panel.
  */
 object PanelDetector {
 
     /** Bump when the result changes, so pages are not served from an older version's cache. */
-    const val VERSION = 1
+    const val VERSION = 2
 
     /** Gutter pixels are within this of the background level. */
     private const val TOLERANCE = 40
 
     /** A band crossing a piece is a gutter when at most this share of it belongs to the piece. */
     private const val CUT_OCCUPANCY = 0.35f
+
+    /** How far (px) a border may wander and still count as straight. */
+    private const val EDGE_TOLERANCE = 3
 
     fun analyze(image: GrayImage): PageLayout = PageLayout(
         panels = findPanels(image),
@@ -73,7 +78,7 @@ object PanelDetector {
             .filter { unit.isPanelSized(it) && it.count >= minFill * it.area }
             .flatMap { cut(it, labels, w, unit, depth = 0) }
             .filter { unit.isPanelSized(it) }
-        val panels = merge(found)
+        val panels = absorbFragments(merge(found), gutter, labels, w, h)
 
         val covered = panels.sumOf { it.area.toLong() }.toFloat() / (w.toLong() * h)
         if (panels.isEmpty() || covered < 0.15f) return null
@@ -352,6 +357,152 @@ object PanelDetector {
             }
         }
         return sum
+    }
+
+    /**
+     * A balloon or a bit of white art that touches a panel's border lets the gutter in and cuts a
+     * piece off the panel, most often a corner of a panel that runs off the page. Such a small
+     * piece beside a much bigger panel, within its row or column, is joined back to it; smaller
+     * pieces that then fall inside the joined panel go with it.
+     */
+    private fun absorbFragments(
+        regions: List<Region>,
+        gutter: BooleanArray,
+        labels: IntArray,
+        w: Int,
+        h: Int,
+    ): List<Region> {
+        val list = regions.sortedByDescending { it.area }.toMutableList()
+        var changed = true
+        while (changed) {
+            changed = false
+            search@ for (small in list.asReversed()) {
+                if (small.area > 0.06f * w * h) continue
+                for (big in list) {
+                    if (big === small || small.area > 0.3f * big.area) continue
+                    var joined = joinFragment(small, big, gutter, labels, w, h) ?: continue
+                    val rest = list.filter { it !== big && it !== small }
+                    val inside = rest.filter {
+                        intersection(it, joined) >= 0.9f * it.area && it.area <= 0.3f * big.area
+                    }
+                    // Joining must not cut into a panel of its own
+                    if (rest.any { it !in inside && intersection(it, joined) > 0.1f * it.area }) continue
+                    for (piece in inside) joined = joined.copy(count = joined.count + piece.count)
+                    list[list.indexOf(big)] = joined
+                    list.removeAll { it === small || inside.any { piece -> piece === it } }
+                    changed = true
+                    break@search
+                }
+            }
+        }
+        return list
+    }
+
+    /** [big] with [small] joined to it, or `null` if [small] looks like a panel of its own. */
+    private fun joinFragment(
+        small: Region,
+        big: Region,
+        gutter: BooleanArray,
+        labels: IntArray,
+        w: Int,
+        h: Int,
+    ): Region? {
+        val beside = small.y0 >= big.y0 - 0.1f * big.height && small.y1 <= big.y1 + 0.1f * big.height
+        val above = small.x0 >= big.x0 - 0.1f * big.width && small.x1 <= big.x1 + 0.1f * big.width
+        if (!beside && !above) return null
+        val gap = if (beside) {
+            distance(small.x0, small.x1, big.x0, big.x1).toFloat() / w
+        } else {
+            distance(small.y0, small.y1, big.y0, big.y1).toFloat() / h
+        }
+        if (gap >= 0.15f) return null
+        if (cleanLineBetween(small, big, gutter, w, alongX = beside)) return null
+        // A real panel faces its neighbour with a straight border. Right beside the big panel,
+        // any other edge gives the piece away. Farther off, both facing edges must be uneven:
+        // a balloon between them, not a gutter
+        val own = straightness(small, big, labels, w, alongX = beside, over = small)
+        val fragment = if (gap < 0.06f) {
+            own < 0.9f
+        } else {
+            own < 0.6f && straightness(big, small, labels, w, alongX = beside, over = small) < 0.8f
+        }
+        if (!fragment) return null
+        return Region(
+            big.id,
+            min(big.x0, small.x0),
+            min(big.y0, small.y0),
+            max(big.x1, small.x1),
+            max(big.y1, small.y1),
+            big.count + small.count,
+        )
+    }
+
+    /**
+     * Share of the lines of [over] (rows if [alongX], else columns) where [region]'s own pixels
+     * reach its side that faces [other]: about 1 for a straight border, less for an edge that a
+     * balloon cut.
+     */
+    private fun straightness(
+        region: Region,
+        other: Region,
+        labels: IntArray,
+        w: Int,
+        alongX: Boolean,
+        over: Region,
+    ): Float {
+        val from = if (alongX) max(region.y0, over.y0) else max(region.x0, over.x0)
+        val to = if (alongX) min(region.y1, over.y1) else min(region.x1, over.x1)
+        if (to < from) return 0f
+        val towardEnd = if (alongX) {
+            other.x0 + other.x1 > region.x0 + region.x1
+        } else {
+            other.y0 + other.y1 >
+                region.y0 + region.y1
+        }
+        val edge = if (alongX) (if (towardEnd) region.x1 else region.x0) else (if (towardEnd) region.y1 else region.y0)
+        val step = if (towardEnd) -1 else 1
+        var straight = 0
+        for (line in from..to) {
+            for (d in 0..EDGE_TOLERANCE) {
+                val pos = edge + step * d
+                val index = if (alongX) line * w + pos else pos * w + line
+                if (labels[index] == region.id) {
+                    straight++
+                    break
+                }
+            }
+        }
+        return straight.toFloat() / (to - from + 1)
+    }
+
+    /** Gap between two pixel ranges (0 when they touch or overlap). */
+    private fun distance(a0: Int, a1: Int, b0: Int, b1: Int) = max(0, max(a0, b0) - min(a1, b1) - 1)
+
+    private fun intersection(a: Region, b: Region): Int {
+        val w = min(a.x1, b.x1) - max(a.x0, b.x0) + 1
+        val h = min(a.y1, b.y1) - max(a.y0, b.y0) + 1
+        return if (w <= 0 || h <= 0) 0 else w * h
+    }
+
+    /**
+     * Whether a line of gutter (a column if [alongX], else a row) runs between [small] and [big]
+     * all along [small]'s side. A balloon in the gap has an outline and text, a gutter has neither.
+     */
+    private fun cleanLineBetween(small: Region, big: Region, gutter: BooleanArray, w: Int, alongX: Boolean): Boolean {
+        val from = if (alongX) min(small.x1, big.x1) + 1 else min(small.y1, big.y1) + 1
+        val to = if (alongX) max(small.x0, big.x0) - 1 else max(small.y0, big.y0) - 1
+        val spanFrom = if (alongX) small.y0 else small.x0
+        val spanTo = if (alongX) small.y1 else small.x1
+        val allowed = (spanTo - spanFrom + 1) / 100
+        for (line in from..to) {
+            var ink = 0
+            for (i in spanFrom..spanTo) {
+                val index = if (alongX) i * w + line else line * w + i
+                if (!gutter[index]) ink++
+            }
+            if (ink <= allowed) return true
+        }
+        return false
     }
 
     /** Merges pieces that overlap by at least half of the smaller one (or lie inside another). */

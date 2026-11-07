@@ -37,8 +37,12 @@ class TestPage(val width: Int, val height: Int, background: Int = 255) {
         }
     }
 
-    /** A filled ellipse with a black outline: a speech balloon. */
-    fun balloon(cx: Int, cy: Int, rx: Int, ry: Int) {
+    /**
+     * A filled ellipse with a black outline: a speech balloon. Artists often leave a ring of
+     * white paper ([halo] px) between a balloon and the art around it.
+     */
+    fun balloon(cx: Int, cy: Int, rx: Int, ry: Int, halo: Int = 0) {
+        if (halo > 0) ellipse(cx, cy, rx + 3 + halo, ry + 3 + halo, 255)
         for (y in cy - ry - 3..cy + ry + 3) {
             for (x in cx - rx - 3..cx + rx + 3) {
                 val d = sq((x - cx).toFloat() / rx) + sq((y - cy).toFloat() / ry)
@@ -52,6 +56,14 @@ class TestPage(val width: Int, val height: Int, background: Int = 255) {
         }
         line(cx - rx / 2, cy - 4, cx + rx / 2, cy - 4, 3, 0)
         line(cx - rx / 2, cy + 6, cx + rx / 3, cy + 6, 3, 0)
+    }
+
+    fun ellipse(cx: Int, cy: Int, rx: Int, ry: Int, value: Int) {
+        for (y in cy - ry..cy + ry) {
+            for (x in cx - rx..cx + rx) {
+                if (sq((x - cx).toFloat() / rx) + sq((y - cy).toFloat() / ry) <= 1f) set(x, y, value)
+            }
+        }
     }
 
     fun line(x0: Int, y0: Int, x1: Int, y1: Int, thickness: Int, value: Int) {

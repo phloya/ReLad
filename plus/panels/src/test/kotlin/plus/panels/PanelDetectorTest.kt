@@ -98,6 +98,39 @@ class PanelDetectorTest {
         found[1].bottom shouldBe (0.97f plusOrMinus 0.01f)
     }
 
+    /**
+     * A panel that runs off the page at the top and the sides, with three balloons along its left
+     * edge. Each balloon touches the page edge, a neighbour or the gutter, so the white around
+     * them cuts two corners off the panel.
+     */
+    private fun cornersCutByBalloons(): TestPage {
+        val page = TestPage(w, h)
+        page.fill(0, 0, w, 380, 150)
+        val random = kotlin.random.Random(5)
+        repeat(120) {
+            val x = random.nextInt(w)
+            val y = random.nextInt(380)
+            page.line(x, y, x + random.nextInt(-60, 60), (y + random.nextInt(-60, 60)).coerceIn(0, 379), 3, 0)
+        }
+        page.balloon(150, 90, 70, 95, halo = 10)
+        page.balloon(90, 200, 110, 70, halo = 10)
+        page.balloon(130, 330, 40, 55, halo = 10)
+        page.panel(30, 400, 340, 970)
+        page.panel(360, 400, 670, 970)
+        page.noise(6)
+        return page
+    }
+
+    @Test
+    fun `corners cut off by balloons stay with their panel`() {
+        val found = ReadingOrder.sort(PanelDetector.findPanels(cornersCutByBalloons().image()), true, 0.7f)
+        found shouldHaveSize 3
+        found[0].left shouldBe (0f plusOrMinus 0.01f)
+        found[0].top shouldBe (0f plusOrMinus 0.01f)
+        found[0].right shouldBe (1f plusOrMinus 0.01f)
+        found[0].bottom shouldBe (0.38f plusOrMinus 0.01f)
+    }
+
     @Test
     fun `a page drawn to the edges is one panel`() {
         // Art to the edges: short strokes and texture everywhere, no band of paper across the page
