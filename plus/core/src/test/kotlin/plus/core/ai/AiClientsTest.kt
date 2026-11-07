@@ -154,6 +154,41 @@ class AiClientsTest {
     }
 
     @Test
+    fun `Claude models that can decline get Anthropic's default fallback, others and proxies do not`() = runTest {
+        val ok = """{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}"""
+        fun anthropic(model: String, baseUrl: String = AiProviderType.Anthropic.defaultBaseUrl) =
+            config(AiProviderType.Anthropic, baseUrl).copy(model = model)
+
+        val opus = FakeServer(body = ok)
+        AiClients.create(anthropic("claude-opus-5-5"), "k", opus.client).send(request)
+        opus.request.header("anthropic-beta") shouldBe AnthropicClient.FALLBACK_BETA
+        opus.json["fallbacks"]!!.jsonPrimitive.content shouldBe "default"
+
+        val haiku = FakeServer(body = ok)
+        AiClients.create(anthropic("claude-haiku-5-5"), "k", haiku.client).send(request)
+        haiku.request.header("anthropic-beta") shouldBe null
+        haiku.json.containsKey("fallbacks") shouldBe false
+
+        val proxy = FakeServer(body = ok)
+        AiClients.create(anthropic("claude-opus-5-5", "https://proxy.example.com"), "k", proxy.client).send(request)
+        proxy.json.containsKey("fallbacks") shouldBe false
+    }
+
+    @Test
+    fun `a refusal is reported as such`() = runTest {
+        val server = FakeServer(
+            body = """{"content":[],"stop_reason":"refusal","stop_details":{"type":"refusal","category":"cyber"}}""",
+        )
+        val client = AiClients.create(config(AiProviderType.Anthropic), "k", server.client)
+
+        val error = shouldThrow<AiException> { client.send(request) }
+
+        error.kind shouldBe AiException.Kind.BadResponse
+        error.message!! shouldContain "declined"
+        error.message!! shouldContain "cyber"
+    }
+
+    @Test
     fun `Anthropic cannot return images`() = runTest {
         val client = AiClients.create(config(AiProviderType.Anthropic), "a", FakeServer(body = "{}").client)
 
