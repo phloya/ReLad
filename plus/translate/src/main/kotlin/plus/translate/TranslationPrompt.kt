@@ -68,13 +68,13 @@ object TranslationPrompt {
 
             # Answer
             JSON only, no other text:
-            {"regions":[{"type":"bubble","box":[ymin,xmin,ymax,xmax],"speaker":"…","text":"…","translation":"…"}],
+            {"regions":[{"type":"bubble","box":{BOX},"speaker":"…","text":"…","translation":"…"}],
              "new_characters":[{"original":"…","name":"…","gender":"female","speech":"…"}],
              "new_terms":[{"original":"…","translation":"…","kind":"technique","note":"…"}],
              "summary":"…"}
             - "type": "bubble", "caption" (narration), "sfx" or "other".
             - "box": tight box around the text itself (for bubbles: the text inside, not the whole bubble),
-              {UNITS}, y from the top edge, x from the left edge.
+              {UNITS}.
             - "speaker": the original name (as in the Characters list) of who says it, only if the art makes it
               clear; otherwise "unsure". Narration and sound effects: "unsure".
             - "text": the original text exactly as written. "translation": your translation.
@@ -92,8 +92,19 @@ object TranslationPrompt {
             .replace(
                 "{UNITS}",
                 when (units) {
-                    BoxUnits.PerMille -> "integers 0–1000 relative to the image's height and width"
-                    BoxUnits.Pixels -> "integers in pixels of the image (its size is given with the page)"
+                    BoxUnits.PerMille ->
+                        "integers 0–1000 relative to the image's height and width, y from the top edge, " +
+                            "x from the left edge"
+                    BoxUnits.Pixels ->
+                        "integers in pixels of the image (its size is given with the page): left, top, right, " +
+                            "bottom, from the image's top left corner"
+                },
+            )
+            .replace(
+                "{BOX}",
+                when (units) {
+                    BoxUnits.PerMille -> "[ymin,xmin,ymax,xmax]"
+                    BoxUnits.Pixels -> "[x1,y1,x2,y2]"
                 },
             )
             // Multi-line parts go in after trimIndent, which would otherwise see their lines' zero indent

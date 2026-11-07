@@ -17,10 +17,13 @@ import plus.translate.bible.TermKind
 
 /** How the model is asked to give box coordinates. */
 enum class BoxUnits {
-    /** 0–1000 of the image's height and width: Gemini's own way, also Qwen and most others. */
+    /** `[ymin, xmin, ymax, xmax]` in 0–1000 of the image: Gemini's own way, also Qwen and most others. */
     PerMille,
 
-    /** Pixels of the image the model got: Claude 4.7 and later map coordinates 1:1 to pixels. */
+    /**
+     * `[x1, y1, x2, y2]` in pixels of the image the model got: Claude's own way (4.7 and later map
+     * coordinates 1:1 to pixels). Asked for Gemini's order, it got confused and answered twice.
+     */
     Pixels,
 }
 
@@ -61,10 +64,11 @@ object TranslationParser {
         }.mapNotNull { it as? JsonObject }
         val pixels = units == BoxUnits.Pixels ||
             items.any { item -> numbers(item.boxElement()).orEmpty().any { it > PER_MILLE } }
+        val xFirst = units == BoxUnits.Pixels
         val scale = if (pixels) {
-            Scale(imageWidth.toDouble(), imageHeight.toDouble(), pageWidth, pageHeight)
+            Scale(imageWidth.toDouble(), imageHeight.toDouble(), pageWidth, pageHeight, xFirst)
         } else {
-            Scale(PER_MILLE, PER_MILLE, pageWidth, pageHeight)
+            Scale(PER_MILLE, PER_MILLE, pageWidth, pageHeight, xFirst)
         }
         val regions = items.mapNotNull { item -> region(item, scale) }
         val obj = root as? JsonObject
@@ -152,17 +156,24 @@ object TranslationParser {
     }
 
     /** The model's coordinate space ([fromWidth] × [fromHeight]) and the page's pixels. */
-    private class Scale(val fromWidth: Double, val fromHeight: Double, val pageWidth: Int, val pageHeight: Int)
+    private class Scale(
+        val fromWidth: Double,
+        val fromHeight: Double,
+        val pageWidth: Int,
+        val pageHeight: Int,
+        /** `[x1, y1, x2, y2]` instead of `[ymin, xmin, ymax, xmax]`. */
+        val xFirst: Boolean,
+    )
 
     private fun JsonObject.boxElement(): JsonElement? = this["box"] ?: this["box_2d"] ?: this["bbox"]
 
     private fun numbers(element: JsonElement?): List<Double>? =
         (element as? JsonArray)?.mapNotNull { it.jsonPrimitive.doubleOrNull }?.takeIf { it.size == 4 }
 
-    /** `[ymin, xmin, ymax, xmax]` in the model's space → page pixels. Swapped corners are put right. */
+    /** A box in the model's space and order → page pixels. Swapped corners are put right. */
     private fun box(element: JsonElement?, scale: Scale): Box? {
         val values = numbers(element) ?: return null
-        val (y1, x1, y2, x2) = values
+        val (x1, y1, x2, y2) = if (scale.xFirst) values else listOf(values[1], values[0], values[3], values[2])
         fun x(v: Double) = (v.coerceIn(0.0, scale.fromWidth) / scale.fromWidth * scale.pageWidth).toInt()
         fun y(v: Double) = (v.coerceIn(0.0, scale.fromHeight) / scale.fromHeight * scale.pageHeight).toInt()
         val box = Box(

@@ -107,8 +107,8 @@ class TranslationParserTest {
 
     @Test
     fun `pixel boxes are read in the model image's pixels and scaled to the page`() {
-        // Claude got a 1036 x 1600 image of a 2072 x 3200 page and answered in its pixels
-        val answer = """{"regions":[{"type":"bubble","box":[1085,60,1265,230],"translation":"x"}]}"""
+        // Claude got a 1036 x 1600 image of a 2072 x 3200 page and answered in its pixels, x first
+        val answer = """{"regions":[{"type":"bubble","box":[60,1085,230,1265],"translation":"x"}]}"""
 
         TranslationParser.parsePage(answer, 2072, 3200, BoxUnits.Pixels, 1036, 1600).regions.single().box shouldBe
             Box(left = 120, top = 2170, right = 460, bottom = 2530)

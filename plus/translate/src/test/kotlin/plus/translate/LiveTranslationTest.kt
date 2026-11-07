@@ -87,23 +87,30 @@ class LiveTranslationTest {
                 current = "${dir.name}-${file.nameWithoutExtension}"
                 call = 0
                 val started = System.currentTimeMillis()
-                val result = translator.translate(
-                    client = client,
-                    image = PageTextTranslator.ModelImage(AiImage(bytes, mime), image.width, image.height),
-                    width = image.width,
-                    height = image.height,
-                    context = PageContext(
-                        mangaId = 1,
-                        mangaTitle = title,
-                        chapterId = chapterIndex + 1L,
-                        chapterName = dir.name,
-                        pageIndex = pageIndex,
-                        sourceLanguage = source,
-                    ),
-                    language = language,
-                    translateSoundEffects = true,
-                    units = BoxUnits.Pixels,
-                )
+                val result = try {
+                    translator.translate(
+                        client = client,
+                        image = PageTextTranslator.ModelImage(AiImage(bytes, mime), image.width, image.height),
+                        width = image.width,
+                        height = image.height,
+                        context = PageContext(
+                            mangaId = 1,
+                            mangaTitle = title,
+                            chapterId = chapterIndex + 1L,
+                            chapterName = dir.name,
+                            pageIndex = pageIndex,
+                            sourceLanguage = source,
+                        ),
+                        language = language,
+                        translateSoundEffects = true,
+                        units = BoxUnits.Pixels,
+                    )
+                } catch (e: Exception) {
+                    // One bad page must not stop the run: note it and go on
+                    summary.append("${dir.name}-${file.nameWithoutExtension}\tFAILED: ${e.message?.take(200)}\n")
+                    File(out, "summary.tsv").writeText(summary.toString())
+                    return@forEachIndexed
+                }
                 val seconds = (System.currentTimeMillis() - started) / 1000.0
                 val name = "${dir.name}-${file.nameWithoutExtension}"
                 File(out, "$name.json").writeText(
