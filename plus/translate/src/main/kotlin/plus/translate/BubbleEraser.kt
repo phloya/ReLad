@@ -4,11 +4,11 @@ package plus.translate
  * Erases the original text inside a bubble or caption without touching its outline or the art.
  *
  * The model gives a box around the text. Inside a larger search area, the bubble's light
- * background is flood-filled starting from the light pixels in the box. On every row, the span
- * from the first to the last pixel of that light area is the bubble interior on that row: it
- * covers the text strokes (they sit between light pixels) and stops at the dark outline.
- * Those spans are painted with the background colour, but only near the text box, so that a
- * caption without an outline on a white page cannot wipe the art around it.
+ * background is flood-filled starting from the light pixels in the box. The letters are the dark
+ * spots that light area encloses; the outline and a line between two joined bubbles are not
+ * enclosed (they run out to the edge), so they stay. The light area and its letters are painted
+ * with the background colour, but only near the text when the bubble is open, so that a caption
+ * without an outline on a white page cannot wipe the art around it.
  *
  * Works on plain ARGB pixels so it can be tested without Android.
  * TachiyomiAT painted a white rectangle over the text instead, which cut into outlines and art.
@@ -50,8 +50,8 @@ object BubbleEraser {
         /** Where [paint] will paint the background, in page pixels; `null`: nothing to paint. */
         internal val paintArea: Box? = null,
         internal val area: Box? = null,
-        internal val first: IntArray? = null,
-        internal val last: IntArray? = null,
+        /** The bubble's light area and everything it encloses (its letters), in [area]'s pixels. */
+        internal val inside: BooleanArray? = null,
     )
 
     /** Finds and erases in one go: [analyze], then [paint]. */
@@ -64,20 +64,19 @@ object BubbleEraser {
         paintBox: Box = textBox.expanded(PAINT_MARGIN, width, height),
     ): Result = analyze(pixels, width, height, textBox, searchBox, paintBox).also { paint(pixels, width, it) }
 
-    /** Paints the background over the letters [analyze] found. */
+    /**
+     * Paints the background over the letters [analyze] found: the bubble's light area and what it
+     * encloses. An outline running out to the bubble's edge (between two joined bubbles) stays.
+     */
     fun paint(pixels: IntArray, width: Int, result: Result) {
         val paint = result.paintArea ?: return
         val area = result.area ?: return
-        val first = result.first ?: return
-        val last = result.last ?: return
-        for (y in first.indices) {
-            if (first[y] < 0) continue
-            val pageY = area.top + y
-            if (pageY < paint.top || pageY >= paint.bottom) continue
-            val row = pageY * width + area.left
-            val from = maxOf(first[y], paint.left - area.left)
-            val to = minOf(last[y], paint.right - area.left - 1)
-            for (x in from..to) pixels[row + x] = result.background
+        val inside = result.inside ?: return
+        for (y in maxOf(paint.top, area.top) until minOf(paint.bottom, area.bottom)) {
+            val row = (y - area.top) * area.width - area.left
+            for (x in maxOf(paint.left, area.left) until minOf(paint.right, area.right)) {
+                if (inside[row + x]) pixels[y * width + x] = result.background
+            }
         }
     }
 
@@ -166,27 +165,45 @@ object BubbleEraser {
             ((sumG / count).toInt() shl 8) or
             (sumB / count).toInt()
 
-        // Each row's span of the light component: the bubble interior on that row
-        val first = IntArray(areaHeight) { -1 }
-        val last = IntArray(areaHeight) { -1 }
+        // The light area and everything it encloses: the letters (dark spots with light all around).
+        // Dark lines that run out of it (the outline, the line between two joined bubbles) are not
+        // enclosed: they reach the area's edge through other dark pixels
+        val outside = BooleanArray(light.size)
+        for (y in 0 until areaHeight) {
+            for (x in 0 until areaWidth) {
+                if (x != 0 && y != 0 && x != areaWidth - 1 && y != areaHeight - 1) continue
+                val i = y * areaWidth + x
+                if (!filled[i] && !outside[i]) {
+                    outside[i] = true
+                    stack.push(i)
+                }
+            }
+        }
+        while (stack.isNotEmpty()) {
+            val i = stack.pop()
+            val x = i % areaWidth
+            val y = i / areaWidth
+            if (x > 0) stack.pushOutside(i - 1, filled, outside)
+            if (x < areaWidth - 1) stack.pushOutside(i + 1, filled, outside)
+            if (y > 0) stack.pushOutside(i - areaWidth, filled, outside)
+            if (y < areaHeight - 1) stack.pushOutside(i + areaWidth, filled, outside)
+        }
+        val inside = BooleanArray(light.size) { !outside[it] }
+
+        // The whole light area's extent: did it run into the search limit?
         var minX = Int.MAX_VALUE
         var minY = Int.MAX_VALUE
         var maxX = -1
         var maxY = -1
-        for (y in 0 until areaHeight) {
-            for (x in 0 until areaWidth) {
-                if (filled[y * areaWidth + x]) {
-                    if (first[y] < 0) first[y] = x
-                    last[y] = x
-                }
-            }
-            if (first[y] < 0) continue
-            minX = minOf(minX, first[y])
-            maxX = maxOf(maxX, last[y])
+        for (i in filled.indices) {
+            if (!filled[i]) continue
+            val x = i % areaWidth
+            val y = i / areaWidth
+            minX = minOf(minX, x)
+            maxX = maxOf(maxX, x)
             minY = minOf(minY, y)
             maxY = maxOf(maxY, y)
         }
-        val erased = Box(area.left + minX, area.top + minY, area.left + maxX + 1, area.top + maxY + 1)
         // Ran into the search limit somewhere. The page edge is not a limit: a bubble cut by the page
         // edge (as the letterer left it) is closed by it
         val hitsLimit = (minX == 0 && area.left > 0) || (minY == 0 && area.top > 0) ||
@@ -206,11 +223,64 @@ object BubbleEraser {
         // (mostly dark box, and the light found is smaller than the box: letters, not a bubble)
         if (lightInBox < textArea * MIN_LIGHT_SHARE && count < textArea) return Result(null, WHITE, onArt = true)
 
+        // This text's own part of the bubble, row by row: the run of the inside that holds the
+        // text's middle. Two joined bubbles side by side are two runs, split by their shared line
+        val anchor = ((textBox.left + textBox.right) / 2 - area.left).coerceIn(0, areaWidth - 1)
+        val first = IntArray(areaHeight) { -1 }
+        val last = IntArray(areaHeight) { -1 }
+        var lobe = 0L
+        var lobeLight = 0L
+        var top = -1
+        var bottom = -1
+        var left = Int.MAX_VALUE
+        var right = -1
+        for (y in 0 until areaHeight) {
+            val row = y * areaWidth
+            var bestFrom = -1
+            var bestTo = -1
+            var bestDistance = Int.MAX_VALUE
+            var x = 0
+            while (x < areaWidth) {
+                if (!inside[row + x]) {
+                    x++
+                    continue
+                }
+                val from = x
+                while (x < areaWidth && inside[row + x]) x++
+                val to = x - 1
+                val distance = if (anchor in
+                    from..to
+                ) {
+                    0
+                } else {
+                    minOf(kotlin.math.abs(anchor - from), kotlin.math.abs(anchor - to))
+                }
+                if (distance < bestDistance) {
+                    bestDistance = distance
+                    bestFrom = from
+                    bestTo = to
+                }
+            }
+            // A run far to the side of the text belongs to something else
+            if (bestFrom < 0 || bestDistance > textBox.width) continue
+            first[y] = bestFrom
+            last[y] = bestTo
+            lobe += bestTo - bestFrom + 1
+            for (i in bestFrom..bestTo) if (filled[row + i]) lobeLight++
+            if (top < 0) top = y
+            bottom = y
+            left = minOf(left, bestFrom)
+            right = maxOf(right, bestTo)
+        }
+        if (top < 0) return Result(null, WHITE)
+        val erased = Box(area.left + left, area.top + top, area.left + right + 1, area.top + bottom + 1)
+
         // A closed bubble is erased whole: the model's box is rough and may miss a line of the text.
         // Not too big for the text, though: a light area that size is more likely art than a bubble.
-        val whole = enclosed && count <= textArea * MAX_BUBBLE_TO_TEXT
+        val whole = enclosed && lobe <= textArea * MAX_BUBBLE_TO_TEXT
         // Open bubble or white page: only where the letters are, so no white spills onto the art.
-        // Letters are looked for a little around the model's rough box: it often misses some
+        // Letters are looked for a little around the model's rough box (it often misses some) and
+        // along their line for as long as it goes on
         val ink = if (whole) {
             null
         } else {
@@ -219,27 +289,28 @@ object BubbleEraser {
                 width,
                 area,
                 textBox.expanded(INK_SEARCH, width, height),
-                first,
-                last,
+                inside,
+                filled,
             )
         }
         val paint = if (whole) {
             Box(area.left, area.top, area.right, area.bottom)
         } else {
-            ink?.expanded(INK_MARGIN, width, height)?.let { intersect(it, paintBox) } ?: paintBox
+// As far as the letters go (followed along and across their lines), a little around them
+            ink?.expanded(INK_MARGIN, width, height) ?: paintBox
         }
 
-        val spans = IntArray((maxY - minY + 1) * 2) { i ->
-            val y = minY + i / 2
+        val spans = IntArray((bottom - top + 1) * 2) { i ->
+            val y = top + i / 2
             val x = if (i % 2 == 0) first[y] else last[y]
             if (x < 0) -1 else area.left + x
         }
-        val component = Room.ofRows(area.top + minY, spans)
+        val component = Room.ofRows(area.top + top, spans)
         // An open bubble's light area may run on into the art: text stays near the original letters
         val room = if (whole) component else component.within((ink ?: paint).expanded(OPEN_ROOM, width, height))
 
         var covered = 0L
-        for (y in maxOf(textBox.top, area.top + minY) until minOf(textBox.bottom, area.top + maxY + 1)) {
+        for (y in maxOf(textBox.top, area.top + top) until minOf(textBox.bottom, area.top + bottom + 1)) {
             val row = y - area.top
             if (first[row] < 0) continue
             val from = maxOf(textBox.left, area.left + first[row])
@@ -247,9 +318,7 @@ object BubbleEraser {
             if (to > from) covered += to - from
         }
         val coverage = covered.toFloat() / textArea
-        var spanned = 0L
-        for (y in 0 until areaHeight) if (first[y] >= 0) spanned += last[y] - first[y] + 1
-        val fill = count.toFloat() / spanned.coerceAtLeast(1)
+        val fill = lobeLight.toFloat() / lobe.coerceAtLeast(1)
 
         val rows = if (whole) spans else null
         // An open bubble's light area may run on into the art: the text goes only where we painted
@@ -264,8 +333,7 @@ object BubbleEraser {
             fill = fill,
             paintArea = paint,
             area = area,
-            first = first,
-            last = last,
+            inside = inside,
         )
     }
 
@@ -281,19 +349,28 @@ object BubbleEraser {
     }
 
     /**
-     * The box around the dark strokes inside [textBox] that sit within the light area's row spans:
-     * the letters themselves, wherever the model's rough box put them.
+     * The box around the letters near [textBox]: dark strokes the light area encloses, wherever the
+     * model's rough box put them, and further along their line for as long as letters go on.
      */
-    private fun inkBox(pixels: IntArray, width: Int, area: Box, textBox: Box, first: IntArray, last: IntArray): Box? {
+    private fun inkBox(
+        pixels: IntArray,
+        width: Int,
+        area: Box,
+        textBox: Box,
+        inside: BooleanArray,
+        light: BooleanArray,
+    ): Box? {
+        fun letter(x: Int, y: Int): Boolean {
+            val i = (y - area.top) * area.width + (x - area.left)
+            return inside[i] && !light[i] && luminance(pixels[y * width + x]) < LIGHT_THRESHOLD
+        }
         var left = Int.MAX_VALUE
         var top = Int.MAX_VALUE
         var right = -1
         var bottom = -1
         for (y in maxOf(textBox.top, area.top) until minOf(textBox.bottom, area.bottom)) {
-            val row = y - area.top
-            if (first[row] < 0) continue
-            for (x in maxOf(textBox.left, area.left + first[row]) until minOf(textBox.right, area.left + last[row])) {
-                if (luminance(pixels[y * width + x]) < LIGHT_THRESHOLD) {
+            for (x in maxOf(textBox.left, area.left) until minOf(textBox.right, area.right)) {
+                if (letter(x, y)) {
                     left = minOf(left, x)
                     right = maxOf(right, x)
                     top = minOf(top, y)
@@ -301,7 +378,37 @@ object BubbleEraser {
                 }
             }
         }
-        return if (right < 0) null else Box(left, top, right + 1, bottom + 1)
+        if (right < 0) return null
+        // Along the line the next letter is at most a word gap away; the next line, a line gap.
+        // Then along the lines found again: the next line may be longer
+        val gap = ((bottom - top + 1) * LINE_GAP).toInt().coerceIn(MIN_GAP, MAX_GAP)
+        repeat(2) {
+            var empty = 0
+            var x = right + 1
+            while (x < area.right && empty <= gap) {
+                if ((top..bottom).any { letter(x, it) }) right = x.also { empty = 0 } else empty++
+                x++
+            }
+            empty = 0
+            x = left - 1
+            while (x >= area.left && empty <= gap) {
+                if ((top..bottom).any { letter(x, it) }) left = x.also { empty = 0 } else empty++
+                x--
+            }
+            empty = 0
+            var y = bottom + 1
+            while (y < area.bottom && empty <= gap) {
+                if ((left..right).any { letter(it, y) }) bottom = y.also { empty = 0 } else empty++
+                y++
+            }
+            empty = 0
+            y = top - 1
+            while (y >= area.top && empty <= gap) {
+                if ((left..right).any { letter(it, y) }) top = y.also { empty = 0 } else empty++
+                y--
+            }
+        }
+        return Box(left, top, right + 1, bottom + 1)
     }
 
     private fun intersect(a: Box, b: Box): Box? {
@@ -325,6 +432,13 @@ object BubbleEraser {
     /** Around the letters found, as a share of their box's size. */
     private const val INK_MARGIN = 0.12f
 
+    /** Letters on one line are at most this share of the line's height apart (word gaps)... */
+    private const val LINE_GAP = 0.8f
+
+    /** ...within these limits, in pixels. */
+    private const val MIN_GAP = 6
+    private const val MAX_GAP = 40
+
     /** In an open bubble, text may take this much more room around the original letters (share of their size). */
     private const val OPEN_ROOM = 0.35f
 
@@ -343,6 +457,13 @@ object BubbleEraser {
         fun push(value: Int) {
             if (size == data.size) data = data.copyOf(size * 2)
             data[size++] = value
+        }
+
+        fun pushOutside(i: Int, filled: BooleanArray, outside: BooleanArray) {
+            if (!filled[i] && !outside[i]) {
+                outside[i] = true
+                push(i)
+            }
         }
 
         fun pushIf(i: Int, light: BooleanArray, label: IntArray, id: Int) {

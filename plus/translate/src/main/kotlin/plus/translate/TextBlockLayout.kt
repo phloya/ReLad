@@ -38,6 +38,34 @@ class Room(val top: Int, private val left: IntArray, private val right: IntArray
         return i in left.indices && left[i] >= 0 && x >= left[i] && x <= right[i]
     }
 
+    /**
+     * This room without the parts other texts take ([others], with [margin] around them): a row
+     * stops before another text on either side of [anchorX], and is lost where one covers it.
+     */
+    fun excluding(others: List<Box>, anchorX: Float, margin: Int): Room {
+        if (others.isEmpty()) return this
+        val l = left.copyOf()
+        val r = right.copyOf()
+        for (i in l.indices) {
+            if (l[i] < 0) continue
+            val y = top + i
+            for (box in others) {
+                if (y < box.top - margin || y >= box.bottom + margin) continue
+                when {
+                    box.right + margin <= anchorX -> l[i] = maxOf(l[i], box.right + margin)
+                    box.left - margin >= anchorX -> r[i] = minOf(r[i], box.left - margin)
+                    else -> l[i] = -1
+                }
+                if (l[i] < 0 || r[i] <= l[i]) {
+                    l[i] = -1
+                    r[i] = -1
+                    break
+                }
+            }
+        }
+        return Room(top, l, r)
+    }
+
     /** This room, but only inside [box]. */
     fun within(box: Box): Room? {
         val from = maxOf(top, box.top)
@@ -105,17 +133,26 @@ object TextBlockLayout {
         size: Float,
         minSize: Float,
         style: Style,
+        /** Where the original's lines were centred; `null`: the room's own middle. */
+        anchorX: Float? = null,
     ): TextBlock? {
         if (text.size == 0) return null
         var current = size
         while (true) {
-            placeAt(text, room, anchorY, current, style)?.let { return it }
+            placeAt(text, room, anchorY, current, style, anchorX)?.let { return it }
             if (current <= minSize) return null
             current = maxOf(minSize, current * SHRINK)
         }
     }
 
-    private fun placeAt(text: TextPieces, room: Room, anchorY: Float, size: Float, style: Style): TextBlock? {
+    private fun placeAt(
+        text: TextPieces,
+        room: Room,
+        anchorY: Float,
+        size: Float,
+        style: Style,
+        anchorX: Float?,
+    ): TextBlock? {
         val lineHeight = size * style.lineHeight
         val cap = size * style.measurer.capHeight
         val maxLines = minOf(text.size, (room.height / lineHeight).toInt())
@@ -132,7 +169,7 @@ object TextBlockLayout {
                     val offset = n * step
                     if (far && kotlin.math.abs(offset) <= NEAR_STEPS * lineHeight / 4) continue
                     val top = anchorY - blockHeight / 2 + offset
-                    tryLines(text, room, top, lines, size, lineHeight, cap, style)?.let { return it }
+                    tryLines(text, room, top, lines, size, lineHeight, cap, style, anchorX)?.let { return it }
                 }
             }
         }
@@ -148,6 +185,7 @@ object TextBlockLayout {
         lineHeight: Float,
         cap: Float,
         style: Style,
+        anchorX: Float?,
     ): TextBlock? {
         val widths = FloatArray(lines)
         val centers = FloatArray(lines)
@@ -157,15 +195,25 @@ object TextBlockLayout {
             val baseline = top + k * lineHeight + lineHeight / 2 + cap / 2
             val (l, r) = room.between(baseline - cap * ABOVE_CAP, baseline + cap * BELOW_BASELINE) ?: return null
             val pad = maxOf(style.minPad * cap, style.padShare * (r - l))
-            // Lines are centred on the bubble's axis, as a letterer sets them; on the row's own
-            // middle only when the axis is too near the row's side
-            val axis = room.axis
-            val half = minOf(axis - l, r - axis) - pad
-            val centered = half * 2 >= (r - l - 2 * pad) * MIN_AXIS_SHARE
-            val width = if (centered) half * 2 else r - l - 2 * pad
+            val center: Float
+            val width: Float
+            if (anchorX != null) {
+                // Where the original's lines were: in a bubble shared by two texts each stays on
+                // its own side. Moved in only as far as needed to keep a letter's room from the edge
+                center = anchorX.coerceIn(minOf(l + pad + cap, (l + r) / 2), maxOf(r - pad - cap, (l + r) / 2))
+                width = 2 * (minOf(center - l, r - center) - pad)
+            } else {
+                // Lines are centred on the bubble's axis, as a letterer sets them; on the row's own
+                // middle only when the axis is too near the row's side
+                val axis = room.axis
+                val half = minOf(axis - l, r - axis) - pad
+                val centered = half * 2 >= (r - l - 2 * pad) * MIN_AXIS_SHARE
+                center = if (centered) axis else (l + r) / 2
+                width = if (centered) half * 2 else r - l - 2 * pad
+            }
             if (width < cap) return null
             widths[k] = width
-            centers[k] = if (centered) axis else (l + r) / 2
+            centers[k] = center
             baselines[k] = baseline
         }
         val ends = LineBreaker.split(text, size, widths) ?: return null

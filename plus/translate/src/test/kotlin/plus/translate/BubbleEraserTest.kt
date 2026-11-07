@@ -147,6 +147,46 @@ class BubbleEraserTest {
     }
 
     @Test
+    fun `two joined bubbles keep the line between them and each its own text`() {
+        val page = Page(width = 240)
+        page.bubble(cx = 80, cy = 100, rx = 60, ry = 45)
+        page.bubble(cx = 160, cy = 100, rx = 60, ry = 45)
+        // Where they overlap, the second one's outline arc stays: it divides the two
+        for (y in 0 until 200) {
+            for (x in 0 until 240) {
+                val d = page.inEllipse(x, y, 160, 100, 60, 45)
+                if (d > 0.9 && d <= 1.1 && x < 120) page.set(x, y, black)
+            }
+        }
+        page.rect(60, 95, 90, 99, black) // left text
+        page.rect(165, 95, 195, 99, black) // right text
+
+        val result = BubbleEraser.erase(page.pixels, page.width, page.height, Box(55, 90, 95, 104), Box(0, 0, 240, 200))
+
+        page[75, 97] shouldBe white
+        page[180, 97] shouldBe black // the other bubble's text is not this one's to erase
+        page[101, 100] shouldBe black // the dividing line stays
+        val room = result.room.shouldNotBeNull()
+        (room.between(97f, 98f)!!.second < 105f) shouldBe true
+    }
+
+    @Test
+    fun `an open bubble's line is erased as far as it goes, past the model's box`() {
+        val page = Page()
+        page.rect(0, 0, 200, 200, white)
+        page.rect(0, 150, 200, 200, gray) // art below, connected to the page's white
+        // One line of "letters" from x=40 to x=150; the model's box covers only its start
+        for (x in 40 until 150 step 8) page.rect(x, 50, x + 4, 60, black)
+        page.rect(40, 65, 44, 75, black) // the next line, below the box
+
+        BubbleEraser.erase(page.pixels, page.width, page.height, Box(38, 48, 80, 62), Box(0, 0, 200, 200))
+
+        page[144, 55] shouldBe white
+        page[42, 70] shouldBe white
+        page[100, 170] shouldBe gray
+    }
+
+    @Test
     fun `a bubble cut by the page edge counts as closed`() {
         val page = Page()
         page.bubble(cx = 20, cy = 100, rx = 70, ry = 45) // its left part is off the page

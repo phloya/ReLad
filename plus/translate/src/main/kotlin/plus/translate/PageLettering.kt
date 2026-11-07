@@ -47,9 +47,11 @@ object PageLettering {
                 region
             } else {
                 val others = regions.filterIndexed { j, _ -> j != i }.map { it.box }
+                // The first nearby place inside a closed bubble with letters; the box then goes onto
+                // those letters (the bubble's, found whole: a place may catch only a bit of them)
                 TextSnap.candidates(pixels, width, height, region.box, others)
                     .take(MAX_SNAP_TRIES)
-                    .firstOrNull { inBubble(pixels, width, height, it) }
+                    .firstNotNullOfOrNull { bubbleLetters(pixels, width, height, it) }
                     ?.let { region.copy(box = it) } ?: region
             }
         }
@@ -107,7 +109,10 @@ object PageLettering {
                 common != null && own in common * (1 - SAME_SIZE)..common * (1 + SAME_SIZE) -> common
                 else -> own
             } ?: width * DEFAULT_SIZE
-            layout(plan, size, width, height)
+            // Other texts' places, so that two texts in one bubble don't run into each other
+            val others = plans.filter { it !== plan && it.region.type.erasesOriginal && it.bubble?.onArt != true }
+                .map { it.ink?.box ?: it.region.box }
+            layout(plan, size, width, height, others)
         }
     }
 
@@ -128,12 +133,7 @@ object PageLettering {
 
     /** [box] has dark letters in it and sits in a closed bubble. */
     private fun inBubble(pixels: IntArray, width: Int, height: Int, box: Box): Boolean {
-        val bubble = BubbleEraser.analyze(pixels, width, height, box, searchBox(box, width, height))
-        if (bubble.rows == null || bubble.onArt || bubble.coverage < MIN_COVERAGE ||
-            bubble.fill < MIN_FILL
-        ) {
-            return false
-        }
+        val bubble = closedBubble(pixels, width, height, box) ?: return false
         val ink = InkMeasure.measure(
             pixels,
             width,
@@ -144,6 +144,28 @@ object PageLettering {
             inside = bubble.room,
         )
         return ink != null && ink.core >= MIN_CORE && ink.core <= height * MAX_CORE
+    }
+
+    /** The letters of the closed bubble [box] lies in, or `null` if it lies in none (or one without letters). */
+    private fun bubbleLetters(pixels: IntArray, width: Int, height: Int, box: Box): Box? {
+        val bubble = closedBubble(pixels, width, height, box) ?: return null
+        val lobe = bubble.erased ?: return null
+        val ink = InkMeasure.measure(
+            pixels,
+            width,
+            height,
+            lobe,
+            lightLetters = false,
+            vertical = false,
+            inside = bubble.room,
+        )
+        return ink?.takeIf { it.core >= MIN_CORE && it.core <= height * MAX_CORE }?.box
+    }
+
+    /** The closed bubble [box] lies in: almost all of the box inside its light area, which is light but for letters. */
+    private fun closedBubble(pixels: IntArray, width: Int, height: Int, box: Box): BubbleEraser.Result? {
+        val bubble = BubbleEraser.analyze(pixels, width, height, box, searchBox(box, width, height))
+        return bubble.takeIf { it.rows != null && !it.onArt && it.coverage >= MIN_COVERAGE && it.fill >= MIN_FILL }
     }
 
     /** By the longer side: a column of vertical Japanese text sits in a bubble several times wider. */
@@ -255,7 +277,7 @@ object PageLettering {
         return Plan(region, text, font, bubble, ink, size, lineHeight, locale)
     }
 
-    private fun layout(plan: Plan, size: Float, width: Int, height: Int): Lettering? {
+    private fun layout(plan: Plan, size: Float, width: Int, height: Int, others: List<Box>): Lettering? {
         val region = plan.region
         val font = plan.font
         if (plan.text.isBlank()) return null
@@ -282,6 +304,9 @@ object PageLettering {
                 // About the original's size: a smaller translation mixes with the original's letters
                 if (region.type == RegionType.Sfx) {
                     target = minOf(region.box.height * SFX_FILL / font.capHeight, width * SFX_MAX_SIZE)
+                    // A sound is never split mid-word: its longest word fits the original's width
+                    val widest = pieces.widest
+                    if (widest > 0) target = minOf(target, region.box.width * SFX_WIDTH_FILL / widest)
                 }
             }
             onArt || bubble?.room == null -> {
@@ -309,9 +334,29 @@ object PageLettering {
             }
         }
         val minSize = maxOf(width * MIN_SIZE, target * MIN_SCALE).coerceAtMost(target)
-        val block = TextBlockLayout.place(pieces, room, anchor, target, minSize, style)
-            ?: fallback(plan, room, anchor, minSize, height, style)
-            ?: return null
+        // Lines centred where the original's were (measured), in a bubble shared with another text
+        // kept off its place
+        val anchorX = ink?.box?.let { (it.left + it.right) / 2f }
+        val ownRoom = if (sfx ||
+            onArt
+        ) {
+            room
+        } else {
+            room.excluding(others, anchorX ?: (region.box.left + region.box.right) / 2f, OTHERS_MARGIN)
+        }
+        val block =
+            (
+                if (ownRoom !==
+                    room
+                ) {
+                    TextBlockLayout.place(pieces, ownRoom, anchor, target, minSize, style, anchorX)
+                } else {
+                    null
+                }
+                )
+                ?: TextBlockLayout.place(pieces, room, anchor, target, minSize, style, anchorX)
+                ?: fallback(plan, room, anchor, minSize, height, style)
+                ?: return null
 
         val background = bubble?.background ?: WHITE
         return when {
@@ -345,6 +390,21 @@ object PageLettering {
         height: Int,
         style: TextBlockLayout.Style,
     ): TextBlock? {
+        if (plan.region.type == RegionType.Sfx) {
+            // A sound in one piece, a word per line, even if it runs a little out of its box
+            val words = TextPieces.of(plan.text, plan.font, plan.locale)
+            val half = maxOf(words.widest * size, plan.region.box.width.toFloat()) / 2 + 1
+            val middle = (plan.region.box.left + plan.region.box.right) / 2f
+            val wide = Room.of(Box((middle - half).toInt(), 0, (middle + half).toInt() + 1, height))
+            return TextBlockLayout.place(
+                words,
+                wide,
+                anchor,
+                size,
+                size,
+                TextBlockLayout.Style(style.measurer, style.lineHeight, 0f, 0f),
+            )
+        }
         var left = Int.MAX_VALUE
         var right = Int.MIN_VALUE
         for (y in room.top until room.bottom) {
@@ -389,11 +449,14 @@ object PageLettering {
     /** Light letters are looked for this much around their box (share of their height). */
     private const val ART_CLEAN_MARGIN = 0.6f
 
+    /** Space kept to another text in the same bubble, in pixels. */
+    private const val OTHERS_MARGIN = 6
+
     /** In a closed bubble, letters are looked for this many box heights around the box. */
     private const val MEASURE_REACH = 0.75f
 
     /** Places tried for a bubble whose box is beside its letters. */
-    private const val MAX_SNAP_TRIES = 80
+    private const val MAX_SNAP_TRIES = 150
 
     /** A measured band smaller than this (pixels) or larger than this share of the page is not letters. */
     private const val MIN_CORE = 4f
@@ -434,6 +497,7 @@ object PageLettering {
     private const val SFX_MAX_SIZE = 0.09f
     private const val SFX_OUTLINE = 0.24f
     private const val SFX_OVER = 0.15f
+    private const val SFX_WIDTH_FILL = 1.1f
 
     private const val LIGHT_FILL = 190
     private const val DARK_FILL = 110

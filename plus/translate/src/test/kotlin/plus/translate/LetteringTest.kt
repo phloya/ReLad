@@ -68,6 +68,19 @@ class LetteringTest {
     }
 
     @Test
+    fun `a text keeps off another text's place in a shared bubble`() {
+        val room = Room.of(Box(0, 0, 300, 100))
+        val shared = room.excluding(listOf(Box(200, 30, 260, 50)), anchorX = 80f, margin = 6)
+        // Rows beside the other text stop before it; rows above and below are whole
+        shared.between(40f, 41f)!!.second shouldBe 194f
+        shared.between(5f, 6f)!!.second shouldBe 299f
+        // Centred where its original was, not in the room's middle
+        val style = TextBlockLayout.Style(measurer, lineHeight = 1.3f, padShare = 0f, minPad = 0f)
+        val block = TextBlockLayout.place(pieces("SHORT"), shared, 40f, 10f, 7f, style, anchorX = 80f).shouldNotBeNull()
+        block.lines.single().centerX shouldBe 80f
+    }
+
+    @Test
     fun `text that doesn't fit at the original's size is set smaller`() {
         val room = Room.of(Box(0, 0, 100, 30))
         val style = TextBlockLayout.Style(measurer, lineHeight = 1.3f, padShare = 0f, minPad = 0f)
