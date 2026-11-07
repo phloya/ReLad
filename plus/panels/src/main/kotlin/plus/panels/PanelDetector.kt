@@ -26,13 +26,21 @@ import kotlin.math.sqrt
 object PanelDetector {
 
     /** Bump when the result changes, so pages are not served from an older version's cache. */
-    const val VERSION = 3
+    const val VERSION = 4
 
     /** Gutter pixels are within this of the background level. */
     private const val TOLERANCE = 40
 
     /** A band crossing a piece is a gutter when at most this share of it belongs to the piece. */
     private const val CUT_OCCUPANCY = 0.35f
+
+    /** Samples per side of the page when measuring overlap. */
+    private const val GRID = 100
+
+    private const val LEFT = 1
+    private const val TOP = 2
+    private const val RIGHT = 4
+    private const val BOTTOM = 8
 
     /** How far (px) a border may wander and still count as straight. */
     private const val EDGE_TOLERANCE = 3
@@ -47,8 +55,16 @@ object PanelDetector {
     fun findPanels(image: GrayImage): List<Box> {
         val guess = backgrounds(image)
         for (background in guess.candidates) {
-            val panels = findWith(image, background, guess.sure) ?: continue
-            return panels
+            // White art at the page edge is first kept in its panel (only on white paper: on
+            // black, dark art at the edge is mostly the page itself, as on title pages). If that
+            // leaves panels overlapping more than without it, the art was a gutter after all
+            val withLeaks = if (background.light) findWith(image, background, guess.sure, keepLeaks = true) else null
+            if (withLeaks != null && withLeaks.overlapShare() <= 0.01f) return withLeaks
+            val plain = findWith(image, background, guess.sure, keepLeaks = false)
+            if (withLeaks != null && plain != null && withLeaks.overlapShare() <= plain.overlapShare() + 0.01f) {
+                return withLeaks
+            }
+            return plain ?: continue
         }
         return listOf(Box.FULL)
     }
@@ -58,7 +74,7 @@ object PanelDetector {
      * When the background is only a guess (art covers the page edges), the layout must be clear:
      * at least two panels covering much of the page.
      */
-    private fun findWith(image: GrayImage, background: Background, sure: Boolean): List<Box>? {
+    private fun findWith(image: GrayImage, background: Background, sure: Boolean, keepLeaks: Boolean): List<Box>? {
         val w = image.width
         val h = image.height
         val isBackground = BooleanArray(w * h) { background.matches(image.pixels[it].toInt() and 0xFF) }
@@ -68,6 +84,7 @@ object PanelDetector {
         val core = erode(isBackground, w, h, radius)
         val outside = floodFromEdges(core, w, h)
         val gutter = growWithin(outside, isBackground, w, h, radius)
+        if (keepLeaks) keepLeaksInPanels(gutter, w, h)
 
         val labels = IntArray(w * h)
         val pieces = label(gutter, w, h, labels)
@@ -83,11 +100,11 @@ object PanelDetector {
             .filter { unit.isPanelSized(it) }
         val joins = Joins(pieces.size + 1)
         val panels = absorbFragments(merge(found, joins), gutter, labels, w, h, joins)
+        val roots = IntArray(pieces.size + 1) { joins.root(it) }
 
         val covered = panels.sumOf { it.area.toLong() }.toFloat() / (w.toLong() * h)
         if (panels.isEmpty() || covered < 0.15f) return null
         if (!sure && (panels.size < 2 || covered < 0.55f || overlap(panels) > 0.01f * covered * w * h)) return null
-        val roots = IntArray(pieces.size + 1) { joins.root(it) }
         return panels.map {
             Box(
                 it.x0.toFloat() / w,
@@ -97,6 +114,31 @@ object PanelDetector {
                 shape = shapeOf(it, labels, roots, w, h),
             )
         }
+    }
+
+    /**
+     * How much of what the panels cover, they cover twice: sampled on a grid, each panel by its
+     * outline when it has one (slanted panels overlap as boxes, not as what the reader shows).
+     */
+    private fun List<Box>.overlapShare(): Float {
+        var covered = 0
+        var twice = 0
+        for (gy in 0 until GRID) {
+            val y = (gy + 0.5f) / GRID
+            for (gx in 0 until GRID) {
+                val x = (gx + 0.5f) / GRID
+                val n = count { it.covers(x, y) }
+                if (n >= 1) covered++
+                if (n >= 2) twice++
+            }
+        }
+        return if (covered > 0) twice.toFloat() / covered else 0f
+    }
+
+    private fun Box.covers(x: Float, y: Float): Boolean {
+        if (x < left || x > right || y < top || y > bottom) return false
+        val quad = shape ?: return true
+        return inside(FloatArray(8) { quad[it] }, x, y, tolerance = 0f)
     }
 
     /** Which labelled pieces ended up in one panel: a joined piece points to the one it joined. */
@@ -335,6 +377,81 @@ object PanelDetector {
             if (i < (h - 1) * w) seed(i + w)
         }
         return reached
+    }
+
+    /**
+     * A panel that runs off the page has no border there, so white art touching the page edge
+     * (a face, a balloon, a sky) is flooded like a gutter and cuts the panel apart or off.
+     * Gutters are narrow bands, and the page's own margin runs along several sides. A thick white
+     * patch that reaches the page edge on one side only (or in one corner) is a leak: it goes
+     * back to the panel.
+     */
+    private fun keepLeaksInPanels(gutter: BooleanArray, w: Int, h: Int) {
+        // "Thick": a square of this size fits inside. Gutters on a page ~1100 px tall are 10-20 px
+        val r = max(6, (0.017f * min(w, h)).roundToInt())
+        val side = 2 * r + 1
+        // Running sums of gutter pixels, for any square at once
+        val sums = IntArray((w + 1) * (h + 1))
+        for (y in 0 until h) {
+            var row = 0
+            for (x in 0 until w) {
+                if (gutter[y * w + x]) row++
+                sums[(y + 1) * (w + 1) + x + 1] = sums[y * (w + 1) + x + 1] + row
+            }
+        }
+        fun fullSquare(x: Int, y: Int): Boolean {
+            if (x < r || y < r || x + r >= w || y + r >= h) return false
+            val x0 = x - r
+            val y0 = y - r
+            val x1 = x + r + 1
+            val y1 = y + r + 1
+            val n =
+                sums[y1 * (w + 1) + x1] - sums[y0 * (w + 1) + x1] - sums[y1 * (w + 1) + x0] + sums[y0 * (w + 1) + x0]
+            return n == side * side
+        }
+
+        val seen = BooleanArray(w * h)
+        val queue = IntArray(w * h)
+        for (start in gutter.indices) {
+            if (!gutter[start] || seen[start]) continue
+            var head = 0
+            var tail = 0
+            queue[tail++] = start
+            seen[start] = true
+            var sides = 0
+            var thick = false
+            while (head < tail) {
+                val i = queue[head++]
+                val x = i % w
+                val y = i / w
+                if (x == 0) sides = sides or LEFT
+                if (x == w - 1) sides = sides or RIGHT
+                if (y == 0) sides = sides or TOP
+                if (y == h - 1) sides = sides or BOTTOM
+                if (!thick && fullSquare(x, y)) thick = true
+                if (x > 0 && gutter[i - 1] && !seen[i - 1]) {
+                    seen[i - 1] = true
+                    queue[tail++] = i - 1
+                }
+                if (x < w - 1 && gutter[i + 1] && !seen[i + 1]) {
+                    seen[i + 1] = true
+                    queue[tail++] = i + 1
+                }
+                if (y > 0 && gutter[i - w] && !seen[i - w]) {
+                    seen[i - w] = true
+                    queue[tail++] = i - w
+                }
+                if (y < h - 1 && gutter[i + w] && !seen[i + w]) {
+                    seen[i + w] = true
+                    queue[tail++] = i + w
+                }
+            }
+            val count = Integer.bitCount(sides)
+            val corner = count == 2 && sides != LEFT or RIGHT && sides != TOP or BOTTOM
+            if (thick && (count == 1 || corner) && tail <= 0.15f * w * h) {
+                for (k in 0 until tail) gutter[queue[k]] = false
+            }
+        }
     }
 
     /** Grows [mask] by [r] steps, only over [within] pixels (undoes the erosion near the gutter). */
