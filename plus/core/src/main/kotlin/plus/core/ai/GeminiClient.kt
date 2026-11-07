@@ -9,6 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -51,9 +52,14 @@ class GeminiClient(
             putJsonObject("generationConfig") {
                 put("maxOutputTokens", request.maxOutputTokens)
                 when {
-                    request.imageOutput -> putJsonArray("responseModalities") {
-                        add("TEXT")
-                        add("IMAGE")
+                    request.imageOutput -> {
+                        putJsonArray("responseModalities") {
+                            add("TEXT")
+                            add("IMAGE")
+                        }
+                        request.imageAspectRatio?.let { ratio ->
+                            putJsonObject("imageConfig") { put("aspectRatio", ratio) }
+                        }
                     }
                     request.jsonOutput -> put("responseMimeType", "application/json")
                 }
@@ -91,6 +97,17 @@ class GeminiClient(
             val reason = candidate["finishReason"]?.jsonPrimitive?.contentOrNull
             throw AiException("${config.name}: empty answer ($reason)", AiException.Kind.BadResponse)
         }
-        return AiResponse(text, images)
+        return AiResponse(text, images, usage(body))
+    }
+
+    /** `promptTokenCount` already includes the cached part; reasoning comes as `thoughtsTokenCount`. */
+    private fun usage(body: JsonObject): AiUsage? {
+        val usage = body["usageMetadata"] as? JsonObject ?: return null
+        fun n(key: String) = usage[key]?.jsonPrimitive?.longOrNull ?: 0L
+        return AiUsage(
+            inputTokens = n("promptTokenCount"),
+            cachedInputTokens = n("cachedContentTokenCount"),
+            outputTokens = n("candidatesTokenCount") + n("thoughtsTokenCount"),
+        )
     }
 }
