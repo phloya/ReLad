@@ -7,6 +7,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -93,7 +94,21 @@ class AnthropicClient(
                 "${config.name}: empty answer (${body["stop_reason"]?.jsonPrimitive?.contentOrNull})",
                 AiException.Kind.BadResponse,
             )
-        return AiResponse(text, emptyList())
+        return AiResponse(text, emptyList(), usage(body))
+    }
+
+    /** Anthropic reports uncached input, cache writes and cache reads separately. */
+    private fun usage(body: JsonObject): AiUsage? {
+        val usage = body["usage"] as? JsonObject ?: return null
+        fun n(key: String) = usage[key]?.jsonPrimitive?.longOrNull ?: 0L
+        val write = n("cache_creation_input_tokens")
+        val read = n("cache_read_input_tokens")
+        return AiUsage(
+            inputTokens = n("input_tokens") + write + read,
+            cachedInputTokens = read,
+            cacheWriteTokens = write,
+            outputTokens = n("output_tokens"),
+        )
     }
 
     companion object {

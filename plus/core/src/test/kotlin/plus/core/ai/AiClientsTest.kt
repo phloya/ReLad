@@ -220,6 +220,33 @@ class AiClientsTest {
     }
 
     @Test
+    fun `token usage is read from all three formats`() = runTest {
+        val anthropic = FakeServer(
+            body = """{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn",
+                "usage":{"input_tokens":100,"cache_creation_input_tokens":2000,
+                "cache_read_input_tokens":3000,"output_tokens":400}}""",
+        )
+        AiClients.create(config(AiProviderType.Anthropic), "k", anthropic.client).send(request).usage shouldBe
+            AiUsage(inputTokens = 5100, cachedInputTokens = 3000, cacheWriteTokens = 2000, outputTokens = 400)
+
+        val gemini = FakeServer(
+            body = """{"candidates":[{"content":{"parts":[{"text":"ok"}]}}],
+                "usageMetadata":{"promptTokenCount":1800,"cachedContentTokenCount":1000,
+                "candidatesTokenCount":300,"thoughtsTokenCount":200}}""",
+        )
+        AiClients.create(config(AiProviderType.Gemini), "k", gemini.client).send(request).usage shouldBe
+            AiUsage(inputTokens = 1800, cachedInputTokens = 1000, outputTokens = 500)
+
+        val openRouter = FakeServer(
+            body = """{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],
+                "usage":{"prompt_tokens":1500,"completion_tokens":350,
+                "prompt_tokens_details":{"cached_tokens":1024},"cost":0.0021}}""",
+        )
+        AiClients.create(config(AiProviderType.OpenAiCompatible), "k", openRouter.client).send(request).usage shouldBe
+            AiUsage(inputTokens = 1500, cachedInputTokens = 1024, outputTokens = 350, reportedCostUsd = 0.0021)
+    }
+
+    @Test
     fun `missing key fails before any request`() = runTest {
         val client = AiClients.create(config(AiProviderType.OpenAiCompatible), null, FakeServer(body = "{}").client)
 

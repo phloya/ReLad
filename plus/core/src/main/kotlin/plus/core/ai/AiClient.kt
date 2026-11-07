@@ -46,7 +46,29 @@ class AiRequest(
     val maxOutputTokens: Int = 16_384,
 )
 
-class AiResponse(val text: String?, val images: List<AiImage>)
+class AiResponse(
+    val text: String?,
+    val images: List<AiImage>,
+    /** What the request used, if the provider said (all three formats do). */
+    val usage: AiUsage? = null,
+)
+
+/**
+ * Tokens one request used, as the provider reported them: the basis for showing what a chapter
+ * costs. Missing numbers are 0.
+ */
+data class AiUsage(
+    /** All input tokens: text, images and the parts read from or written to the cache. */
+    val inputTokens: Long,
+    /** Part of [inputTokens] read from the provider's prompt cache (much cheaper). */
+    val cachedInputTokens: Long = 0,
+    /** Part of [inputTokens] written to the cache (Anthropic charges a bit more for it). */
+    val cacheWriteTokens: Long = 0,
+    /** All output tokens, including the model's hidden reasoning ("thinking"). */
+    val outputTokens: Long,
+    /** Price in US dollars if the provider reports it itself (OpenRouter does). */
+    val reportedCostUsd: Double? = null,
+)
 
 class AiException(message: String, val kind: Kind, cause: Throwable? = null) : Exception(message, cause) {
     enum class Kind {

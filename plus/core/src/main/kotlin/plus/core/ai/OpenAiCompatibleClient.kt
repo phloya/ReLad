@@ -7,8 +7,10 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -96,6 +98,18 @@ class OpenAiCompatibleClient(
             val reason = choice["finish_reason"]?.jsonPrimitive?.contentOrNull
             throw AiException("${config.name}: empty answer ($reason)", AiException.Kind.BadResponse)
         }
-        return AiResponse(text, images)
+        return AiResponse(text, images, usage(body))
+    }
+
+    /** `prompt_tokens` includes the cached part, `completion_tokens` the reasoning. OpenRouter adds `cost`. */
+    private fun usage(body: JsonObject): AiUsage? {
+        val usage = body["usage"] as? JsonObject ?: return null
+        fun n(obj: JsonObject?, key: String) = obj?.get(key)?.jsonPrimitive?.longOrNull ?: 0L
+        return AiUsage(
+            inputTokens = n(usage, "prompt_tokens"),
+            cachedInputTokens = n(usage["prompt_tokens_details"] as? JsonObject, "cached_tokens"),
+            outputTokens = n(usage, "completion_tokens"),
+            reportedCostUsd = usage["cost"]?.jsonPrimitive?.doubleOrNull,
+        )
     }
 }
