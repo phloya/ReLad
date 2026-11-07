@@ -52,6 +52,8 @@ class PageTranslator(
 
     override suspend fun process(input: ByteArray, context: PageContext): ProcessedPage {
         val s = settings()
+        // Already in the reader's language (a Russian edition read in Russian): nothing to pay for
+        if (sameLanguage(context.sourceLanguage, s.language.code)) return ProcessedPage(input)
         val provider = s.provider ?: throw NotConfiguredException()
         val size = PageBitmaps.size(input) ?: error("Not an image")
         val result = text.translate(
@@ -84,6 +86,14 @@ class PageTranslator(
                 ),
             ),
         )
+    }
+
+    /** Same language; Chinese only when the script matches too (Simplified and Traditional differ). */
+    private fun sameLanguage(source: String?, target: String): Boolean {
+        if (source == null) return false
+        if (source.equals(target, ignoreCase = true)) return true
+        val base = source.substringBefore('-').lowercase()
+        return base != "zh" && base == target.substringBefore('-').lowercase()
     }
 
     /**
