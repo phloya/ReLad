@@ -26,7 +26,7 @@ import kotlin.math.sqrt
 object PanelDetector {
 
     /** Bump when the result changes, so pages are not served from an older version's cache. */
-    const val VERSION = 6
+    const val VERSION = 7
 
     /** Gutter pixels are within this of the background level. */
     private const val TOLERANCE = 40
@@ -60,6 +60,9 @@ object PanelDetector {
     private const val TOP = 2
     private const val RIGHT = 4
     private const val BOTTOM = 8
+
+    /** Share of a side that must lie on one line for it to count as a frame line. */
+    private const val FRAMED_SIDE = 0.8f
 
     /** How far (px) a border may wander and still count as straight. */
     private const val EDGE_TOLERANCE = 3
@@ -583,7 +586,9 @@ object PanelDetector {
         val lines = frameLines && region.area >= minLineArea
         val lineAcross = if (lines) frameLineCut(region, image, labels, w, unit, horizontal = true) else null
         val lineAlong = if (lines) frameLineCut(region, image, labels, w, unit, horizontal = false) else null
-        val best = listOfNotNull(across, along, lineAcross, lineAlong).minByOrNull { it.score } ?: return listOf(region)
+        // When the cleanest band of white is inside a panel (an empty cut), so are the others
+        val band = listOfNotNull(across, along).minByOrNull { it.score }?.takeIf { it.parts.isNotEmpty() }
+        val best = listOfNotNull(band, lineAcross, lineAlong).minByOrNull { it.score } ?: return listOf(region)
         return best.parts.flatMap { cut(it, image, labels, w, unit, depth + 1, checkFrames, frameLines, minLineArea) }
     }
 
@@ -692,6 +697,8 @@ object PanelDetector {
         val minPart = (if (horizontal) unit.height else unit.width) * 0.05f
 
         var best: Cut? = null
+        // The cleanest band that turned out to lie inside a panel
+        var artBand: Cut? = null
         var line = 0
         while (line < lines) {
             if (occupancy[line] > CUT_OCCUPANCY) {
@@ -710,6 +717,18 @@ object PanelDetector {
             val spanFirst = if (horizontal) first.width else first.height
             val spanSecond = if (horizontal) second.width else second.height
             if (spanFirst < 0.4f * length || spanSecond < 0.4f * length) continue
+            val from = (if (horizontal) region.y0 else region.x0) + start
+            val to = (if (horizontal) region.y0 else region.x0) + end
+            val score = sum / (end - start + 1) - (end - start + 1) * 0.0001f
+            // White inside one panel whose frame is broken somewhere (hair or a balloon breaking
+            // out of it lets the gutter in): the panel's side frame lines run on across the band.
+            // Such a band also rules out the less clean bands of the piece: they are white art
+            if (framedBand(region, labels, w, horizontal, from, to, first) ||
+                framedBand(region, labels, w, horizontal, from, to, second)
+            ) {
+                if (artBand == null || score < artBand.score) artBand = Cut(emptyList(), score)
+                continue
+            }
             // A gutter runs along a frame line on at least one side (the other may be borderless
             // art). A band of white art across one panel (a big sound effect, smoke) has ragged
             // edges on both: the panel is not cut there. Only across (rows) and on pages with
@@ -722,10 +741,46 @@ object PanelDetector {
             ) {
                 continue
             }
-            val score = sum / (end - start + 1) - (end - start + 1) * 0.0001f
             if (best == null || score < best.score) best = Cut(listOf(first, second), score)
         }
+        // An empty cut stands for "no cut here"
+        if (artBand != null && (best == null || artBand.score < best.score)) return artBand
         return best
+    }
+
+    /**
+     * Whether the band of lines [from]..[to] (rows if [horizontal]) is white inside one panel:
+     * [part]'s two sides that the band runs into are frame lines (straight), and both go on
+     * through the band, as the top and bottom of a frame do across white inside it.
+     */
+    private fun framedBand(
+        region: Region,
+        labels: IntArray,
+        w: Int,
+        horizontal: Boolean,
+        from: Int,
+        to: Int,
+        part: Region,
+    ): Boolean {
+        val size = if (horizontal) w else labels.size / w
+        fun crosses(end: Boolean): Boolean {
+            val (k, c, share) = edgeLine(part, labels, w, !horizontal, end, stopAtCut = false)
+            if (share < FRAMED_SIDE) return false
+            var n = 0
+            for (line in from..to) {
+                val at = (k * line + c).roundToInt()
+                for (p in max(0, at - EDGE_TOLERANCE)..min(size - 1, at + EDGE_TOLERANCE)) {
+                    val index = if (horizontal) line * w + p else p * w + line
+                    if (labels[index] == region.id) {
+                        n++
+                        break
+                    }
+                }
+            }
+            // Most of the way: hair or a hand may break the line just there
+            return n >= 0.6f * (to - from + 1)
+        }
+        return crosses(end = false) && crosses(end = true)
     }
 
     /**
@@ -734,7 +789,23 @@ object PanelDetector {
      * that side lies on the best line through them. About 1 along a frame, low along ragged art.
      * [end] is the bottom (right) side, else the top (left) one.
      */
-    private fun frameShare(part: Region, labels: IntArray, w: Int, horizontal: Boolean, end: Boolean): Float {
+    private fun frameShare(part: Region, labels: IntArray, w: Int, horizontal: Boolean, end: Boolean): Float =
+        edgeLine(part, labels, w, horizontal, end, stopAtCut = true)[2]
+
+    /**
+     * The best line through [part]'s outermost pixels on one side (see [frameShare]), as
+     * `b = k a + c` with `a` across the side: k, c and the share of the side on the line.
+     * With [stopAtCut], a column whose art goes on past the side (a face that a cut runs
+     * through) has no edge there.
+     */
+    private fun edgeLine(
+        part: Region,
+        labels: IntArray,
+        w: Int,
+        horizontal: Boolean,
+        end: Boolean,
+        stopAtCut: Boolean,
+    ): FloatArray {
         val across = if (horizontal) part.x0..part.x1 else part.y0..part.y1
         val inward = if (horizontal) {
             (if (end) part.y1 downTo part.y0 else part.y0..part.y1)
@@ -743,11 +814,22 @@ object PanelDetector {
         }
         val xs = FloatArray(across.last - across.first + 1)
         val ys = FloatArray(xs.size)
+        val size = if (horizontal) labels.size / w else w
+        val outward = if (end) 1 else -1
         var n = 0
         for (a in across) {
             for (b in inward) {
                 val index = if (horizontal) b * w + a else a * w + b
                 if (labels[index] == part.id) {
+                    // Past a frame line (a few pixels thick) lies the gutter; art that a cut runs
+                    // through (a face) goes on
+                    if (stopAtCut && (1..2).all { k ->
+                            val next = b + outward * 3 * k
+                            next in 0 until size && labels[if (horizontal) next * w + a else a * w + next] == part.id
+                        }
+                    ) {
+                        break
+                    }
                     xs[n] = a.toFloat()
                     ys[n] = b.toFloat()
                     n++
@@ -755,7 +837,7 @@ object PanelDetector {
                 }
             }
         }
-        if (n < 2) return 0f
+        if (n < 2) return floatArrayOf(0f, 0f, 0f)
         val tolerance = EDGE_TOLERANCE.toFloat()
         // Fit a line, then fit again on the points near it (balloons and art crossing a frame
         // pull the first fit off)
@@ -767,7 +849,7 @@ object PanelDetector {
         val (k, c) = line
         var on = 0
         for (i in 0 until n) if (abs(ys[i] - (k * xs[i] + c)) <= tolerance) on++
-        return on.toFloat() / xs.size
+        return floatArrayOf(k, c, on.toFloat() / xs.size)
     }
 
     /** Least-squares line y = k x + c through the points that [use] picks (all, if it picks none). */

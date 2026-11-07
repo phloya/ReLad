@@ -179,6 +179,25 @@ class PanelDetectorTest {
     }
 
     @Test
+    fun `white between two figures inside a frame does not cut the panel`() {
+        // Two figures in one framed panel with white between them. Hair breaking through the top
+        // frame line lets the gutter into that white, which then runs from frame to frame like
+        // a gutter. But the frame lines go on across it: it is inside the panel
+        val page = TestPage(w, h)
+        page.panel(30, 30, 670, 600)
+        page.fill(34, 34, 200, 596, 120)
+        page.fill(260, 34, 666, 596, 150)
+        page.fill(200, 34, 260, 596, 255)
+        page.fill(220, 30, 240, 34, 255)
+        page.panel(30, 640, 670, 970)
+        page.noise(6)
+        val found = ReadingOrder.sort(PanelDetector.findPanels(page.image()), rightToLeft = true, pageAspect = 0.7f)
+        found shouldHaveSize 2
+        found[0].left shouldBe (0.04f plusOrMinus 0.01f)
+        found[0].right shouldBe (0.96f plusOrMinus 0.01f)
+    }
+
+    @Test
     fun `panels that share a frame line without a gutter are told apart`() {
         // One frame around two panels, split only by a black line (Berserk often does this)
         val page = TestPage(w, h)
