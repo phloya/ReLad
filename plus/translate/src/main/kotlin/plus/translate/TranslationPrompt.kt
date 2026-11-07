@@ -17,7 +17,7 @@ import plus.translate.bible.TranslationChecks
 object TranslationPrompt {
 
     /** Bump when the prompt or the answer format changes: cached translations are then redone. */
-    const val VERSION = 3
+    const val VERSION = 4
 
     fun rules(
         language: TargetLanguage,
@@ -62,6 +62,8 @@ object TranslationPrompt {
               that is impossible, keep the meaning the plot needs.
             - ${soundEffectRule(translateSoundEffects, language)}
             - Leave out page numbers, watermarks, scanlation credits and the series' logo or title lettering.
+            - Leave out marks drawn on a character or their clothes (a symbol on a cheek, a crest,
+              a pattern): they are part of the design, not text to read.
 
             # ${language.promptName}
             {STYLE}

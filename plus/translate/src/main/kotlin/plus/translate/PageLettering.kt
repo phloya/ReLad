@@ -268,6 +268,10 @@ object PageLettering {
                 roughCap
             }
             if (cjkOutput) cap / CJK_CAP else cap / font.capHeight
+        } ?: roughCap?.takeIf { region.type == RegionType.Bubble || region.type == RegionType.Caption }?.let { cap ->
+            // Letters not measured (slanted lines read as one): the rough size from the box, so a big
+            // shout stays big instead of taking the page's usual size
+            if (cjkOutput) cap / CJK_CAP else cap / font.capHeight
         }
         // The letterer's line spacing when it can be read off the original (lines of the same case)
         val measured = ink?.pitch?.takeIf { !vertical && !cjkSource && originalUpper == upper }?.let { pitch ->
