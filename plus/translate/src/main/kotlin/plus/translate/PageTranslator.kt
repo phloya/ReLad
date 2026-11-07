@@ -1,6 +1,11 @@
 package plus.translate
 
 import android.graphics.Bitmap
+import android.graphics.BitmapRegionDecoder
+import android.graphics.Rect
+import android.os.Build
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import plus.core.ai.AiClient
@@ -13,6 +18,7 @@ import plus.core.pipeline.PageContext
 import plus.core.pipeline.PageProcessor
 import plus.core.pipeline.ProcessedPage
 import plus.translate.bible.BibleStore
+import java.io.IOException
 
 /**
  * The translation step of the page pipeline: one request to a multimodal model finds and
@@ -68,7 +74,7 @@ class PageTranslator(
         val size = PageBitmaps.size(input) ?: error("Not an image")
         val result = text.translate(
             client = clientFor(provider),
-            image = imageForModel(input, size),
+            images = modelImages(input, size),
             width = size.width,
             height = size.height,
             context = context,
@@ -79,12 +85,19 @@ class PageTranslator(
         )
         val regions = result.regions
 
-        val bitmap = PageBitmaps.decode(input)
-        // Very large pages are decoded smaller; boxes are in original pixels
-        val scaled = if (bitmap.width == size.width) regions else regions.scaledTo(bitmap.width.toFloat() / size.width)
-        PageTypesetter.render(bitmap, scaled, s.language.code, lettering)
-        val image = PageBitmaps.encode(bitmap, Bitmap.CompressFormat.JPEG, quality = 95)
-        bitmap.recycle()
+        // A few pages at a time: a long strip at full size takes tens of megabytes while it is drawn
+        val image = rendering.withPermit {
+            // Full size up to 16 MP whatever the shape (a 4096 side limit made 800 × 14 820 strips 200 px
+            // wide and blurry); larger pages are decoded smaller, boxes are in original pixels
+            val bitmap = PageBitmaps.decode(input, maxSide = MAX_RENDER_SIDE, maxPixels = MAX_RENDER_PIXELS)
+            val scaled = if (bitmap.width == size.width) {
+                regions
+            } else {
+                regions.scaledTo(bitmap.width.toFloat() / size.width)
+            }
+            PageTypesetter.render(bitmap, scaled, s.language.code, lettering)
+            PageBitmaps.encode(bitmap, Bitmap.CompressFormat.JPEG, quality = 95).also { bitmap.recycle() }
+        }
 
         return ProcessedPage(
             image = image,
@@ -106,6 +119,59 @@ class PageTranslator(
         if (source.equals(target, ignoreCase = true)) return true
         val base = source.substringBefore('-').lowercase()
         return base != "zh" && base == target.substringBefore('-').lowercase()
+    }
+
+    /**
+     * The page as the model gets it: one image, or for a long strip its parts at the page's own
+     * width (see [StripParts]), each scaled down only if it is still too large.
+     */
+    private fun modelImages(input: ByteArray, size: PageBitmaps.Size): List<PageTextTranslator.ModelImage> {
+        if (!StripParts.isStrip(size.width, size.height)) return listOf(imageForModel(input, size))
+        val preview = PageBitmaps.decode(input, maxSide = PREVIEW_SIDE)
+        val pixels = IntArray(preview.width * preview.height)
+        preview.getPixels(pixels, 0, preview.width, 0, 0, preview.width, preview.height)
+        val spread = StripParts.rowSpread(pixels, preview.width, preview.height)
+        val rowScale = size.height.toDouble() / preview.height
+        preview.recycle()
+        val parts = StripParts.parts(size.width, size.height, spread, rowScale)
+        val decoder = regionDecoder(input) ?: return listOf(imageForModel(input, size))
+        try {
+            return parts.map { rows ->
+                val part = decoder.decodeRegion(Rect(0, rows.first, size.width, rows.last + 1), null)
+                    ?: return listOf(imageForModel(input, size))
+                val factor = minOf(
+                    1f,
+                    MAX_PART_SIDE.toFloat() / maxOf(part.width, part.height),
+                    kotlin.math.sqrt(MAX_MODEL_PIXELS.toFloat() / (part.width.toLong() * part.height)),
+                )
+                val width = (part.width * factor).toInt().coerceAtLeast(1)
+                val height = (part.height * factor).toInt().coerceAtLeast(1)
+                val scaled = if (factor < 1f) Bitmap.createScaledBitmap(part, width, height, true) else part
+                val bytes = PageBitmaps.encode(scaled, Bitmap.CompressFormat.JPEG, quality = 90)
+                if (scaled !== part) scaled.recycle()
+                part.recycle()
+                PageTextTranslator.ModelImage(
+                    AiImage(bytes, "image/jpeg"),
+                    width,
+                    height,
+                    top = rows.first,
+                    rows = rows.last + 1 - rows.first,
+                )
+            }
+        } finally {
+            decoder.recycle()
+        }
+    }
+
+    private fun regionDecoder(input: ByteArray): BitmapRegionDecoder? = try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            BitmapRegionDecoder.newInstance(input, 0, input.size)
+        } else {
+            @Suppress("DEPRECATION")
+            BitmapRegionDecoder.newInstance(input, 0, input.size, false)
+        }
+    } catch (e: IOException) {
+        null
     }
 
     /**
@@ -149,11 +215,22 @@ class PageTranslator(
         )
     }
 
+    private val rendering = Semaphore(RENDER_AT_ONCE)
+
     private companion object {
         const val MAX_MODEL_SIDE = 2048
 
+        /** With more than 20 images in a request Claude takes at most 2000 px a side. */
+        const val MAX_PART_SIDE = 2000
+
+        /** The copy a strip's quiet rows are looked for in. */
+        const val PREVIEW_SIDE = 4096
+        const val MAX_RENDER_SIDE = 65_000
+        const val MAX_RENDER_PIXELS = 16L * 1024 * 1024
+        const val RENDER_AT_ONCE = 2
+
         /** Bump when erasing or typesetting changes: pages already made are then drawn again. */
-        const val RENDER_VERSION = 9
+        const val RENDER_VERSION = 10
         const val MAX_MODEL_BYTES = 4 * 1024 * 1024
 
         /** Claude scales larger images down itself (about 3.75 MP); keep below to know the size. */
