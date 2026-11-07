@@ -164,7 +164,7 @@ internal object PlusReaderStatus {
         AlertDialog.Builder(activity)
             .setTitle(R.string.plus_status_stopped_title)
             .setMessage(message)
-            .setPositiveButton(R.string.plus_status_retry) { _, _ -> Plus.graph(activity).engine.onSettingsChanged() }
+            .setPositiveButton(R.string.plus_status_retry) { _, _ -> Plus.graph(activity).engine.retryFailed() }
             .setNegativeButton(android.R.string.ok, null)
             .show()
     }

@@ -12,11 +12,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
@@ -68,6 +72,16 @@ object PlusReader {
     @Volatile
     private var lastToastAt = 0L
 
+    private val _showOriginal = MutableStateFlow(false)
+
+    /**
+     * The reader shows pages as they came, not translated or enhanced (the button in the reader's
+     * bottom bar). Processing goes on meanwhile, so switching back shows what got done.
+     */
+    val showOriginal: StateFlow<Boolean> = _showOriginal.asStateFlow()
+
+    fun toggleOriginal() = _showOriginal.update { !it }
+
     fun stream(activity: ReaderActivity, page: ReaderPage): (() -> InputStream)? {
         val original = page.stream ?: return null
         val graph = Plus.graph(activity)
@@ -83,7 +97,7 @@ object PlusReader {
                 val resolved = graph.engine.resolve(bytes, context)
                 originalHashes[page] = resolved.originalHash
                 remember(page, resolved.originalHash, context)
-                resolved.image.inputStream()
+                if (showOriginal.value) bytes.inputStream() else resolved.image.inputStream()
             }
         }
     }
@@ -99,6 +113,10 @@ object PlusReader {
         launch {
             // Settings changed (feature switched, language changed...): show the page as it should be now
             engine.settingsVersion.drop(1).collect { send(page.status) }
+        }
+        launch {
+            // Original or translation switched in the reader
+            showOriginal.drop(1).collect { send(page.status) }
         }
         launch {
             engine.failures

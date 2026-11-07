@@ -23,7 +23,7 @@
     <string name="plus_feature_pipeline_check_summary">Draws a red frame on every page to check that pages go through Re:Lad</string>
     <string name="plus_feature_enabled">Turn on</string>
     <string name="plus_cache_clear">Clear processed pages</string>
-    <string name="plus_cache_summary">Used: %1$s</string>
+    <string name="plus_cache_summary">Used: %1$s. Translations are kept: pages are only drawn again</string>
     <string name="plus_cache_cleared">Processed pages cleared</string>
     <string name="plus_error">Re:Lad: %1$s</string>
 

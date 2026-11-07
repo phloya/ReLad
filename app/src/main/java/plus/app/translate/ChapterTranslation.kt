@@ -48,7 +48,6 @@ object ChapterTranslation {
 
     /** Chapters being translated now: pressing Translate again doesn't start them twice. */
     private val running = ConcurrentHashMap.newKeySet<Long>()
-    private val notificationIds = AtomicInteger(NOTIFICATION_BASE)
 
     fun isAvailable(context: Context): Boolean {
         val graph = Plus.graph(context)
@@ -62,9 +61,13 @@ object ChapterTranslation {
             .sortedWith(compareBy<Chapter> { it.chapterNumber }.thenByDescending { it.sourceOrder })
             .filter { running.add(it.id) }
         if (todo.isEmpty()) return
+        // Pressed again after a stop (no credits, the model refused...): pages that failed a moment
+        // ago are tried again now, pages already done come from the kept translations
+        graph.engine.retryFailed()
         Toast.makeText(app, app.getString(R.string.plus_translate_started, todo.size), Toast.LENGTH_SHORT).show()
         graph.scope.launch(Dispatchers.IO) {
-            val notifier = Notifier(app, manga.title, notificationIds.incrementAndGet())
+            // One notice per title: pressing Translate again after a stop replaces the stop notice
+            val notifier = Notifier(app, manga.title, NOTIFICATION_BASE + (manga.id and TITLE_BITS).toInt())
             var translated = 0
             var error: Throwable? = null
             try {
@@ -226,7 +229,8 @@ object ChapterTranslation {
 
         fun finish(translated: Int, chapters: Int, error: Throwable?) {
             val text = if (error != null) {
-                context.getString(R.string.plus_status_stopped, PlusReaderStatus.reason(context, error))
+                context.getString(R.string.plus_status_stopped, PlusReaderStatus.reason(context, error)) +
+                    "\n" + context.getString(R.string.plus_translate_continue_hint)
             } else {
                 context.getString(R.string.plus_translate_finished, translated, chapters)
             }
@@ -255,6 +259,7 @@ object ChapterTranslation {
 
     private const val CHANNEL = "relad_translate"
     private const val NOTIFICATION_BASE = 0x7E1A0
+    private const val TITLE_BITS = 0xFFFL
     private const val AT_ONCE = 6
     private const val POLL_MS = 1_000L
     private const val MAX_WAIT_MS = 180_000L

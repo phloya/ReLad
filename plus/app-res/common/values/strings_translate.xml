@@ -15,4 +15,12 @@
     <string name="plus_translate_notification_title">Translating %1$s</string>
     <string name="plus_translate_progress">%1$s: %2$d of %3$d pages</string>
     <string name="plus_translate_progress_chapters">chapter %1$d of %2$d</string>
+    <string name="plus_translate_saved">Saved translations</string>
+    <string name="plus_translate_saved_summary">Pages: %1$d, %2$s. Kept for good: a page translated once is only drawn again, even offline. Tap to delete them all</string>
+    <string name="plus_translate_saved_confirm">Delete all saved translations? Pages will be translated by the model again when read, and that uses tokens again.</string>
+    <string name="plus_translate_saved_delete">Delete</string>
+    <string name="plus_translate_saved_deleted">Saved translations deleted</string>
+    <string name="plus_translate_continue_hint">To go on, select the chapters and press Translate again: pages already done are kept.</string>
+    <string name="plus_reader_show_original">Show the original</string>
+    <string name="plus_reader_show_translation">Show the translation</string>
 </resources>
