@@ -40,6 +40,15 @@ enum class SourceLanguage(
             "or pinyin romanization). Write names as they would be written from the original language when you " +
             "can tell it (a Korean name by the rules for Korean names), not by English spelling.",
     ),
+
+    /** Russian scanlations and editions: like English ones, a translation of a translation. */
+    Russian(
+        comics = "comics translated into Russian (manga, manhwa or manhua)",
+        readingOrder = "Follow the layout: right to left for Japanese manga, otherwise left to right; top to bottom.",
+        ambiguity = "The Russian text is itself a translation: names are in Cyrillic (Polivanov for Japanese, " +
+            "Kontsevich for Korean, Palladius for Chinese). Write names as the original's established spelling " +
+            "in the target language (Торфинн is Thorfinn), not by transliterating the Cyrillic letters.",
+    ),
     Other(
         comics = "comics (manga, manhwa or manhua)",
         readingOrder = "Follow the layout: right to left for Japanese manga, otherwise left to right; top to bottom.",
@@ -53,6 +62,7 @@ enum class SourceLanguage(
             "ko" -> Korean
             "zh" -> Chinese
             "en" -> English
+            "ru" -> Russian
             else -> Other
         }
     }

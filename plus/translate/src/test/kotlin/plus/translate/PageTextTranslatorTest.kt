@@ -31,7 +31,7 @@ class PageTextTranslatorTest {
         }
     }
 
-    private val image = AiImage(byteArrayOf(1, 2, 3), "image/png")
+    private val image = PageTextTranslator.ModelImage(AiImage(byteArrayOf(1, 2, 3), "image/png"), 1000, 1500)
 
     private fun context(page: Int, chapterId: Long = 7001) = PageContext(
         mangaId = 1,

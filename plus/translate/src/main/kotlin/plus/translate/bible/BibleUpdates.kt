@@ -37,7 +37,9 @@ object BibleUpdates {
         val speakers = findings.speakers.map(::key).toSet()
         val characters = merged.map { character ->
             val names = listOf(character.original) + character.aliases.map { it.original }
-            val seen = character.keys().any { it in speakers } || names.any { mentionsOriginal(text, it) }
+            // Models give the speaker in either form, original or translated
+            val spoke = (character.keys() + key(character.name)).any { it in speakers }
+            val seen = spoke || names.any { mentionsOriginal(text, it) }
             if (seen) character.copy(lastSeenChapter = chapterId) else character
         }
         val terms = mergedTerms.map { term ->

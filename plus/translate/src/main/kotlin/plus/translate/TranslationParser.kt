@@ -15,6 +15,18 @@ import plus.translate.bible.PageFindings
 import plus.translate.bible.Term
 import plus.translate.bible.TermKind
 
+/** How the model is asked to give box coordinates. */
+enum class BoxUnits {
+    /** `[ymin, xmin, ymax, xmax]` in 0–1000 of the image: Gemini's own way, also Qwen and most others. */
+    PerMille,
+
+    /**
+     * `[x1, y1, x2, y2]` in pixels of the image the model got: Claude's own way (4.7 and later map
+     * coordinates 1:1 to pixels). Asked for Gemini's order, it got confused and answered twice.
+     */
+    Pixels,
+}
+
 /** Reads the model's answer into regions in page pixels, forgiving the usual model sloppiness. */
 object TranslationParser {
 
@@ -31,14 +43,34 @@ object TranslationParser {
     fun parse(answer: String, pageWidth: Int, pageHeight: Int): List<TextRegion> =
         parsePage(answer, pageWidth, pageHeight).regions
 
-    fun parsePage(answer: String, pageWidth: Int, pageHeight: Int): Page {
+    /**
+     * [units] is what the prompt asked for; [imageWidth] × [imageHeight] is the image the model got
+     * (smaller than the page when the page was scaled down for it). Numbers above 1000 can only be
+     * pixels, so such answers are read as pixels whatever was asked: models fall back to their habit.
+     */
+    fun parsePage(
+        answer: String,
+        pageWidth: Int,
+        pageHeight: Int,
+        units: BoxUnits = BoxUnits.PerMille,
+        imageWidth: Int = pageWidth,
+        imageHeight: Int = pageHeight,
+    ): Page {
         val root = root(answer)
         val items = when (root) {
             is JsonObject -> root["regions"] as? JsonArray ?: JsonArray(emptyList())
             is JsonArray -> root
             else -> JsonArray(emptyList())
+        }.mapNotNull { it as? JsonObject }
+        val pixels = units == BoxUnits.Pixels ||
+            items.any { item -> numbers(item.boxElement()).orEmpty().any { it > PER_MILLE } }
+        val xFirst = units == BoxUnits.Pixels
+        val scale = if (pixels) {
+            Scale(imageWidth.toDouble(), imageHeight.toDouble(), pageWidth, pageHeight, xFirst)
+        } else {
+            Scale(PER_MILLE, PER_MILLE, pageWidth, pageHeight, xFirst)
         }
-        val regions = items.mapNotNull { (it as? JsonObject)?.let { item -> region(item, pageWidth, pageHeight) } }
+        val regions = items.mapNotNull { item -> region(item, scale) }
         val obj = root as? JsonObject
         val findings = PageFindings(
             characters = obj.list("new_characters").mapNotNull(::character),
@@ -107,10 +139,10 @@ object TranslationParser {
     private fun JsonObject?.list(key: String): List<JsonObject> =
         (this?.get(key) as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
 
-    private fun region(item: JsonObject, pageWidth: Int, pageHeight: Int): TextRegion? {
+    private fun region(item: JsonObject, scale: Scale): TextRegion? {
         val translation = item.string("translation")?.trim().orEmpty()
         if (translation.isEmpty()) return null
-        val box = box(item["box"] ?: item["box_2d"] ?: item["bbox"], pageWidth, pageHeight) ?: return null
+        val box = box(item.boxElement(), scale) ?: return null
         val type = when (item.string("type")?.lowercase()) {
             "bubble", "speech", "thought" -> RegionType.Bubble
             "caption", "narration" -> RegionType.Caption
@@ -123,16 +155,32 @@ object TranslationParser {
         return TextRegion(type, box, item.string("text").orEmpty(), translation, speaker)
     }
 
-    /** `[ymin, xmin, ymax, xmax]` in 0–1000 → pixels. Swapped corners are put right. */
-    private fun box(element: JsonElement?, pageWidth: Int, pageHeight: Int): Box? {
-        val values = (element as? JsonArray)?.mapNotNull { it.jsonPrimitive.doubleOrNull } ?: return null
-        if (values.size != 4) return null
-        val (y1, x1, y2, x2) = values.map { it.coerceIn(0.0, SCALE) }
+    /** The model's coordinate space ([fromWidth] × [fromHeight]) and the page's pixels. */
+    private class Scale(
+        val fromWidth: Double,
+        val fromHeight: Double,
+        val pageWidth: Int,
+        val pageHeight: Int,
+        /** `[x1, y1, x2, y2]` instead of `[ymin, xmin, ymax, xmax]`. */
+        val xFirst: Boolean,
+    )
+
+    private fun JsonObject.boxElement(): JsonElement? = this["box"] ?: this["box_2d"] ?: this["bbox"]
+
+    private fun numbers(element: JsonElement?): List<Double>? =
+        (element as? JsonArray)?.mapNotNull { it.jsonPrimitive.doubleOrNull }?.takeIf { it.size == 4 }
+
+    /** A box in the model's space and order → page pixels. Swapped corners are put right. */
+    private fun box(element: JsonElement?, scale: Scale): Box? {
+        val values = numbers(element) ?: return null
+        val (x1, y1, x2, y2) = if (scale.xFirst) values else listOf(values[1], values[0], values[3], values[2])
+        fun x(v: Double) = (v.coerceIn(0.0, scale.fromWidth) / scale.fromWidth * scale.pageWidth).toInt()
+        fun y(v: Double) = (v.coerceIn(0.0, scale.fromHeight) / scale.fromHeight * scale.pageHeight).toInt()
         val box = Box(
-            left = (minOf(x1, x2) / SCALE * pageWidth).toInt(),
-            top = (minOf(y1, y2) / SCALE * pageHeight).toInt(),
-            right = (maxOf(x1, x2) / SCALE * pageWidth).toInt(),
-            bottom = (maxOf(y1, y2) / SCALE * pageHeight).toInt(),
+            left = x(minOf(x1, x2)),
+            top = y(minOf(y1, y2)),
+            right = x(maxOf(x1, x2)),
+            bottom = y(maxOf(y1, y2)),
         )
         return box.takeIf { it.width >= MIN_SIDE && it.height >= MIN_SIDE }
     }
@@ -141,6 +189,6 @@ object TranslationParser {
         (this[key] as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
 
     private val UNSURE = setOf("unsure", "unknown", "none", "null", "?", "narrator")
-    private const val SCALE = 1000.0
+    private const val PER_MILLE = 1000.0
     private const val MIN_SIDE = 4
 }

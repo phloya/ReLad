@@ -315,6 +315,18 @@ class AiClientsTest {
     }
 
     @Test
+    fun `when the model answers twice, its correction wins`() {
+        val answer = """{"regions":[{"box":[1,2,3,4],"text":"a {b}"}]}
+
+            Wait, correcting the box coordinates:
+
+            {"regions":[{"box":[2,1,4,3],"text":"a {b}"}]}"""
+
+        AiJson.extract(answer) shouldBe """{"regions":[{"box":[2,1,4,3],"text":"a {b}"}]}"""
+        AiJson.extract("""Here: {"a": "}"} and that's all""") shouldBe """{"a": "}"}"""
+    }
+
+    @Test
     fun `JSON is found inside fences and chatter`() {
         AiJson.extract("Sure!\n```json\n{\"a\":[1,2]}\n```") shouldBe """{"a":[1,2]}"""
         AiJson.extract("[1, 2]") shouldBe "[1, 2]"

@@ -106,7 +106,7 @@ class BibleUpdatesTest {
         )
         val updated = BibleUpdates.apply(
             known,
-            PageFindings(lines = listOf("鬼殺隊に入るんだ！"), speakers = listOf("炭治郎")),
+            PageFindings(lines = listOf("鬼殺隊に入るんだ！"), speakers = listOf("Тандзиро")),
             42,
             "Глава 5",
             0,

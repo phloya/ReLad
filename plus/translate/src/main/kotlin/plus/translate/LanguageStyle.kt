@@ -108,6 +108,8 @@ class LanguageStyle(
                     - Honorifics and kinship titles: Uzbek forms where they fit (aka, opa, ustoz, akajon);
                       keep -san, -kun, senpai where they carry the tone.
                     - Uzbek has no grammatical gender: make it clear from words when the original needs it.
+                    - Every name in Uzbek Latin spelling as it sounds, never English spelling: no th, ph, w
+                      (Thorfinn → Torfinn, Leif → Leyf, Phoebe → Fibi).
                 """.trimIndent(),
                 names = mapOf(
                     SourceLanguage.Japanese to
