@@ -1,22 +1,31 @@
 package plus.app.reader
 
 import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.ReaderActivity
+import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import mihon.app.di.appGraph
 import okio.Buffer
 import plus.app.Plus
+import plus.app.PlusGraph
 import plus.core.ai.AiException
 import plus.core.pipeline.PageContext
 import tachiyomi.core.common.util.system.ImageUtil
@@ -39,6 +48,9 @@ object PlusReader {
 
     private val sourceLanguages = java.util.concurrent.ConcurrentHashMap<Long, String>()
 
+    /** Chapters whose pages are being made ready ahead, one walk each. */
+    private val preparing: MutableMap<ReaderChapter, Job> = Collections.synchronizedMap(WeakHashMap())
+
     @Volatile
     private var lastToastAt = 0L
 
@@ -46,6 +58,7 @@ object PlusReader {
         val original = page.stream ?: return null
         val graph = Plus.graph(activity)
         if (!graph.anyEnabled()) return original
+        prepareChapter(activity, page)
         return {
             val bytes = original().use { it.readBytes() }
             val context = pageContext(activity, page)
@@ -82,6 +95,60 @@ object PlusReader {
         awaitClose()
     }
 
+    /**
+     * When a feature asks for it (translation: "the whole chapter at once"), every page of the
+     * chapter is processed as soon as it opens: from the page opened to the end, then the pages
+     * before it, [AHEAD] at a time. Online pages are taken as Mihon downloads them (when it loads
+     * ahead over Wi-Fi only, on mobile data that is the next few). The walk ends with the reader
+     * and starts over when settings change (pages already done come from the cache).
+     */
+    private fun prepareChapter(activity: ReaderActivity, from: ReaderPage) {
+        val chapter = from.chapter
+        synchronized(preparing) {
+            if (preparing[chapter]?.isActive == true) return
+            preparing[chapter] = activity.lifecycleScope.launch(Dispatchers.IO) {
+                val graph = Plus.graph(activity)
+                graph.engine.settingsVersion.collectLatest {
+                    if (graph.features.none { it.preparesWholeChapter(graph) }) return@collectLatest
+                    val pages = chapter.pages ?: return@collectLatest
+                    val start = from.index.coerceIn(0, pages.size)
+                    val order = pages.drop(start) + pages.take(start).reversed()
+                    // Taken in page order, so the title's notes grow page by page as when reading
+                    val gate = Semaphore(AHEAD)
+                    coroutineScope {
+                        for (page in order) {
+                            gate.acquire()
+                            launch {
+                                try {
+                                    prepare(activity, graph, page)
+                                } finally {
+                                    gate.release()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun prepare(activity: ReaderActivity, graph: PlusGraph, page: ReaderPage) {
+        // Online pages: wait for Mihon to download the image
+        val state = page.statusFlow.first { it == Page.State.Ready || it is Page.State.Error }
+        if (state != Page.State.Ready) return
+        val bytes = try {
+            page.stream?.invoke()?.use { it.readBytes() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logcat(LogPriority.WARN, e) { "Re:Lad couldn't read page ${page.index} ahead" }
+            null
+        } ?: return
+        if (ImageUtil.isAnimatedAndSupported(Buffer().write(bytes))) return
+        val context = pageContext(activity, page) ?: return
+        graph.engine.prepare(bytes, context)
+    }
+
     private fun pageContext(activity: ReaderActivity, page: ReaderPage): PageContext? {
         val manga = activity.viewModel.manga ?: return null
         val chapter = page.chapter.chapter
@@ -116,4 +183,7 @@ object PlusReader {
     }
 
     private const val TOAST_INTERVAL_MS = 10_000L
+
+    /** Pages of a chapter made ready at once: as many as the translation step takes at a time. */
+    private const val AHEAD = 4
 }

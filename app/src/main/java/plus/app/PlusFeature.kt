@@ -30,6 +30,9 @@ interface PlusFeature {
 
     /** The feature's own settings, opened from the Re:Lad screen. `null` if it has none. */
     fun settingsScreen(): Screen? = null
+
+    /** Every page of a chapter is processed as soon as it opens, not when the reader gets to it. */
+    fun preparesWholeChapter(graph: PlusGraph): Boolean = false
 }
 
 object PlusFeatures {
