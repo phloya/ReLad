@@ -1,3 +1,0 @@
-/Users/daler/projects/mangaRelad/plus/enhance/.cxx/Debug/2s5pq3g3/armeabi-v7a/CMakeFiles/relad_enhance.dir
-/Users/daler/projects/mangaRelad/plus/enhance/.cxx/Debug/2s5pq3g3/armeabi-v7a/CMakeFiles/edit_cache.dir
-/Users/daler/projects/mangaRelad/plus/enhance/.cxx/Debug/2s5pq3g3/armeabi-v7a/CMakeFiles/rebuild_cache.dir
