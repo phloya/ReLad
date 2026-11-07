@@ -11,7 +11,11 @@ import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.Random;
+import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
 
 /**
  * Makes a small fake manga chapter for checking Re:Lad on the emulator: panels, speech bubbles with
@@ -20,7 +24,10 @@ import javax.imageio.ImageIO;
  *
  *   java plus/tools/test-manga/MakeTestManga.java <output folder>
  *
- * Output: <output folder>/ReLad Test/Chapter 1/ (no colon: Android storage forbids it)001.png … 003.png
+ * Output (no colon in names: Android storage forbids it):
+ *   <output folder>/ReLad Test/Chapter 1/001.png … 003.png   clean pages
+ *   <output folder>/ReLad Test/Chapter 2/001.jpg … 003.jpg   the same pages as very bad scans:
+ *                                                            low resolution, noise, blur, heavy JPEG
  */
 public class MakeTestManga {
 
@@ -35,6 +42,70 @@ public class MakeTestManga {
         ImageIO.write(page2(), "png", new File(dir, "002.png"));
         ImageIO.write(page3(), "png", new File(dir, "003.png"));
         System.out.println("Written to " + dir.getAbsolutePath());
+
+        File bad = new File(args.length > 0 ? args[0] : ".", "ReLad Test/Chapter 2");
+        bad.mkdirs();
+        jpeg(degrade(page1(), 0.5, 14, 0), 0.12f, new File(bad, "001.jpg"));
+        jpeg(degrade(page2(), 0.6, 6, 2), 0.20f, new File(bad, "002.jpg"));
+        jpeg(degrade(page3(), 0.45, 0, 0), 0.06f, new File(bad, "003.jpg"));
+        System.out.println("Written to " + bad.getAbsolutePath());
+    }
+
+    /** Shrinks the page, blurs it [blur] times and adds gray noise of strength [noise], like a cheap scan. */
+    static BufferedImage degrade(BufferedImage page, double scale, int noise, int blur) {
+        int w = (int) (page.getWidth() * scale);
+        int h = (int) (page.getHeight() * scale);
+        BufferedImage small = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = small.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.drawImage(page, 0, 0, w, h, null);
+        g.dispose();
+        for (int i = 0; i < blur; i++) small = boxBlur(small);
+        Random r = new Random(7);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int rgb = small.getRGB(x, y);
+                int n = (int) (r.nextGaussian() * noise);
+                int v = Math.max(0, Math.min(255, (rgb & 0xFF) + n));
+                small.setRGB(x, y, (v << 16) | (v << 8) | v);
+            }
+        }
+        return small;
+    }
+
+    static BufferedImage boxBlur(BufferedImage src) {
+        int w = src.getWidth();
+        int h = src.getHeight();
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int sum = 0;
+                int count = 0;
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int xx = Math.max(0, Math.min(w - 1, x + dx));
+                        int yy = Math.max(0, Math.min(h - 1, y + dy));
+                        sum += src.getRGB(xx, yy) & 0xFF;
+                        count++;
+                    }
+                }
+                int v = sum / count;
+                out.setRGB(x, y, (v << 16) | (v << 8) | v);
+            }
+        }
+        return out;
+    }
+
+    static void jpeg(BufferedImage image, float quality, File file) throws Exception {
+        ImageWriter writer = ImageIO.getImageWritersByFormatName("jpeg").next();
+        ImageWriteParam param = writer.getDefaultWriteParam();
+        param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+        param.setCompressionQuality(quality);
+        try (ImageOutputStream out = ImageIO.createImageOutputStream(file)) {
+            writer.setOutput(out);
+            writer.write(null, new IIOImage(image, null, null), param);
+        }
+        writer.dispose();
     }
 
     static BufferedImage page1() {

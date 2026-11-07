@@ -1,0 +1,27 @@
+{
+  "buildFiles": [
+    "/Users/daler/projects/mangaRelad/plus/enhance/src/main/cpp/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/Users/daler/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/Users/daler/projects/mangaRelad/plus/enhance/.cxx/RelWithDebInfo/334pv6e6/x86_64",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/Users/daler/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/Users/daler/projects/mangaRelad/plus/enhance/.cxx/RelWithDebInfo/334pv6e6/x86_64",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "relad_enhance::@6890427a1f51a3e7e1df": {
+      "artifactName": "relad_enhance",
+      "abi": "x86_64",
+      "output": "/Users/daler/projects/mangaRelad/plus/enhance/build/intermediates/cxx/RelWithDebInfo/334pv6e6/obj/x86_64/librelad_enhance.so",
+      "runtimeFiles": []
+    }
+  }
+}

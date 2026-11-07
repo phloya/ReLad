@@ -1,0 +1,7 @@
+[
+{
+  "directory": "/Users/daler/projects/mangaRelad/plus/enhance/.cxx/Debug/4q1o3k5g/armeabi-v7a",
+  "command": "/Users/daler/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang++ --target=armv7-none-linux-androideabi26 --sysroot=/Users/daler/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/sysroot -Drelad_enhance_EXPORTS -isystem /Users/daler/projects/mangaRelad/plus/enhance/build/ncnn/ncnn-20261020-android-vulkan/armeabi-v7a/include/ncnn -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -march=armv7-a -mthumb -Wformat -Werror=format-security  -std=c++17 -fno-exceptions -fno-rtti -fno-limit-debug-info  -fPIC -fno-rtti -fno-exceptions -pthread -o CMakeFiles/relad_enhance.dir/upscaler_jni.cpp.o -c /Users/daler/projects/mangaRelad/plus/enhance/src/main/cpp/upscaler_jni.cpp",
+  "file": "/Users/daler/projects/mangaRelad/plus/enhance/src/main/cpp/upscaler_jni.cpp"
+}
+]

@@ -1,0 +1,38 @@
+{
+  "buildFiles": [
+    "/Users/daler/projects/mangaRelad/plus/enhance/src/main/cpp/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/Users/daler/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/Users/daler/projects/mangaRelad/plus/enhance/.cxx/Debug/4q1o3k5g/x86",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/Users/daler/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/Users/daler/projects/mangaRelad/plus/enhance/.cxx/Debug/4q1o3k5g/x86",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "relad_enhance::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86",
+      "artifactName": "relad_enhance",
+      "output": "/Users/daler/projects/mangaRelad/plus/enhance/build/intermediates/cxx/Debug/4q1o3k5g/obj/x86/librelad_enhance.so",
+      "runtimeFiles": []
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "/Users/daler/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang.lld",
+      "cppCompilerExecutable": "/Users/daler/Library/Android/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang++.lld"
+    }
+  },
+  "cFileExtensions": [],
+  "cppFileExtensions": [
+    "cpp"
+  ]
+}
