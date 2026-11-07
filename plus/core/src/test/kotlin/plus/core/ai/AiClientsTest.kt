@@ -241,6 +241,34 @@ class AiClientsTest {
     }
 
     @Test
+    fun `low reasoning is asked for only where the model takes it`() = runTest {
+        val low = AiRequest(system = null, prompt = "p", effort = AiEffort.Low)
+        val claudeAnswer = """{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}"""
+        val geminiAnswer = """{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}"""
+
+        val sonnet = FakeServer(body = claudeAnswer)
+        AiClients.create(config(AiProviderType.Anthropic).copy(model = "claude-sonnet-5-5"), "k", sonnet.client)
+            .send(low)
+        sonnet.json["output_config"]!!.jsonObject["effort"]!!.jsonPrimitive.content shouldBe "low"
+
+        val oldClaude = FakeServer(body = claudeAnswer)
+        AiClients.create(config(AiProviderType.Anthropic).copy(model = "claude-haiku-4-5"), "k", oldClaude.client)
+            .send(low)
+        oldClaude.json.containsKey("output_config") shouldBe false
+
+        val gemini3 = FakeServer(body = geminiAnswer)
+        AiClients.create(config(AiProviderType.Gemini).copy(model = "gemini-3.1-flash-lite"), "k", gemini3.client)
+            .send(low)
+        gemini3.json["generationConfig"]!!.jsonObject["thinkingConfig"]!!.jsonObject["thinkingLevel"]!!
+            .jsonPrimitive.content shouldBe "low"
+
+        val gemini25 = FakeServer(body = geminiAnswer)
+        AiClients.create(config(AiProviderType.Gemini).copy(model = "gemini-2.5-flash-lite"), "k", gemini25.client)
+            .send(low)
+        gemini25.json["generationConfig"]!!.jsonObject.containsKey("thinkingConfig") shouldBe false
+    }
+
+    @Test
     fun `token usage is read from all three formats`() = runTest {
         val anthropic = FakeServer(
             body = """{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn",

@@ -40,6 +40,9 @@ class AnthropicClient(
             put("model", config.model)
             put("max_tokens", request.maxOutputTokens)
             if (fallback) put("fallbacks", "default")
+            if (request.effort != null && config.model in EFFORT_MODELS) {
+                putJsonObject("output_config") { put("effort", request.effort.wire) }
+            }
             if (request.stableSystem != null) {
                 // Cached up to each marker: the fixed part, then the fixed part plus the rest
                 putJsonArray("system") {
@@ -130,5 +133,20 @@ class AnthropicClient(
 
         /** Models that accept `fallbacks: "default"` (checked 2026-11-07). */
         val FALLBACK_MODELS = setOf("claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5")
+
+        /** Models that take `output_config.effort`; older ones reject it (checked 2026-11-07). */
+        val EFFORT_MODELS = setOf(
+            "claude-fable-5-1",
+            "claude-fable-5",
+            "claude-opus-5-5",
+            "claude-opus-5",
+            "claude-opus-4-8",
+            "claude-opus-4-7",
+            "claude-opus-4-6",
+            "claude-sonnet-5-5",
+            "claude-sonnet-5",
+            "claude-sonnet-4-6",
+            "claude-haiku-5-5",
+        )
     }
 }
