@@ -47,6 +47,9 @@ object TranslateFeature : PlusFeature {
 
     override fun settingsScreen(): Screen = TranslateSettingsScreen()
 
+    override fun preparesWholeChapter(graph: PlusGraph): Boolean =
+        graph.isEnabled(this) && TranslatePreferences(graph).wholeChapter.get()
+
     @Volatile
     private var bibleStore: BibleStore? = null
 
@@ -62,6 +65,7 @@ internal class TranslatePreferences(graph: PlusGraph) {
     val provider = prefs.string(TranslateFeature.id, "provider")
     val language = prefs.string(TranslateFeature.id, "language", defaultLanguage())
     val soundEffects = prefs.boolean(TranslateFeature.id, "sfx", true)
+    val wholeChapter = prefs.boolean(TranslateFeature.id, "whole_chapter", true)
 
     private fun defaultLanguage(): String {
         val device = Locale.getDefault().language
@@ -115,6 +119,11 @@ class TranslateSettingsScreen : Screen() {
                         preference = prefs.language,
                         entries = TargetLanguage.all.associate { it.code to it.nativeName },
                         title = stringResource(R.string.plus_translate_language),
+                    ),
+                    Preference.PreferenceItem.SwitchPreference(
+                        preference = prefs.wholeChapter,
+                        title = stringResource(R.string.plus_translate_whole_chapter),
+                        subtitle = stringResource(R.string.plus_translate_whole_chapter_summary),
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = prefs.soundEffects,

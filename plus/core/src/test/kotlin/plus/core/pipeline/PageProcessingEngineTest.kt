@@ -95,6 +95,36 @@ class PageProcessingEngineTest {
     }
 
     @Test
+    fun `a page prepared ahead is processed in place and then shown at once`() = runTest {
+        val first = TagProcessor("first", 1)
+        val second = TagProcessor("second", 2)
+        val engine = engine(first, second)
+
+        engine.prepare(original, context)
+        val resolved = engine.resolve(original, context)
+
+        resolved.image.decodeToString() shouldBe "page+first+second"
+        resolved.pending shouldBe false
+        // Already done: preparing again does nothing
+        engine.prepare(original, context)
+        first.calls shouldBe 1
+        second.calls shouldBe 1
+    }
+
+    @Test
+    fun `a page the reader already asked for is not processed twice`() = runTest {
+        val tag = TagProcessor("a", 1)
+        val engine = engine(tag)
+
+        engine.resolve(original, context).pending shouldBe true
+        engine.prepare(original, context)
+        tag.calls shouldBe 0
+        advanceUntilIdle()
+
+        tag.calls shouldBe 1
+    }
+
+    @Test
     fun `switching off the last step shows the cached earlier step at once`() = runTest {
         val first = TagProcessor("first", 1)
         val second = TagProcessor("second", 2)

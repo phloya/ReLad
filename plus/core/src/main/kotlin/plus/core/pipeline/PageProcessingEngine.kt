@@ -81,38 +81,64 @@ class PageProcessingEngine(
      */
     fun resolve(original: ByteArray, context: PageContext): Resolved {
         val originalHash = sha256(original)
-        val steps = activeSteps(originalHash, context)
-        if (steps.isEmpty()) return Resolved(original, originalHash, pending = false)
+        val plan = plan(originalHash, original, context)
+            ?: return Resolved(original, originalHash, pending = false)
+        if (plan.remaining.isEmpty()) return Resolved(plan.image, originalHash, pending = false)
 
-        // Find the last step that is already cached
-        var done = -1
-        var image = original
-        for (i in steps.indices.reversed()) {
-            val cached = cache.get(steps[i].key) ?: continue
-            done = i
-            image = cached
-            break
-        }
-        if (done == steps.lastIndex) return Resolved(image, originalHash, pending = false)
-
-        val finalKey = steps.last().key
         val scheduled = synchronized(lock) {
-            val failed = failedAt[finalKey]
             when {
-                failed != null && clock() - failed < RETRY_AFTER_MS -> false
-                finalKey in inFlight -> true
+                recentlyFailed(plan.finalKey) -> false
+                plan.finalKey in inFlight -> true
                 else -> {
-                    inFlight += finalKey
+                    inFlight += plan.finalKey
                     true
                 }
             }
         }
         if (scheduled) {
-            val remaining = steps.drop(done + 1)
-            val input = image
-            queue.submit(finalKey) { run(originalHash, finalKey, input, remaining, context) }
+            queue.submit(plan.finalKey) { run(originalHash, plan.finalKey, plan.image, plan.remaining, context) }
         }
-        return Resolved(image, originalHash, pending = scheduled)
+        return Resolved(plan.image, originalHash, pending = scheduled)
+    }
+
+    /**
+     * Processes [original] through every missing step in the caller's coroutine, for pages made
+     * ready before the reader gets to them (a whole chapter at once). Returns when the page is
+     * done or failed; at once if it is cached, failed a moment ago or already being processed.
+     * Each step's [PageProcessor.concurrency] holds here too.
+     */
+    suspend fun prepare(original: ByteArray, context: PageContext) {
+        val originalHash = sha256(original)
+        val plan = plan(originalHash, original, context) ?: return
+        if (plan.remaining.isEmpty()) return
+        val claimed = synchronized(lock) {
+            if (recentlyFailed(plan.finalKey) || plan.finalKey in inFlight) {
+                false
+            } else {
+                inFlight += plan.finalKey
+                true
+            }
+        }
+        if (claimed) run(originalHash, plan.finalKey, plan.image, plan.remaining, context)
+    }
+
+    /** What a page still needs: the best cached version and the steps after it. `null`: no steps at all. */
+    private class Plan(val image: ByteArray, val finalKey: String, val remaining: List<Step>)
+
+    private fun plan(originalHash: String, original: ByteArray, context: PageContext): Plan? {
+        val steps = activeSteps(originalHash, context)
+        if (steps.isEmpty()) return null
+        // The last step that is already cached
+        for (i in steps.indices.reversed()) {
+            val cached = cache.get(steps[i].key) ?: continue
+            return Plan(cached, steps.last().key, steps.drop(i + 1))
+        }
+        return Plan(original, steps.last().key, steps)
+    }
+
+    private fun recentlyFailed(finalKey: String): Boolean {
+        val failed = failedAt[finalKey] ?: return false
+        return clock() - failed < RETRY_AFTER_MS
     }
 
     /** Metadata the last step stored for this page (e.g. translated text regions), if any. */
