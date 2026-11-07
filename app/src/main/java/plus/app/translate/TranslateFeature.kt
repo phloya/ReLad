@@ -18,6 +18,7 @@ import plus.app.PlusFeature
 import plus.app.PlusGraph
 import plus.app.ui.PlusAiProvidersScreen
 import plus.core.pipeline.PageProcessor
+import plus.translate.LetteringFonts
 import plus.translate.PageTranslator
 import plus.translate.TargetLanguage
 import plus.translate.bible.BibleStore
@@ -41,6 +42,7 @@ object TranslateFeature : PlusFeature {
         },
         clientFor = graph::aiClient,
         bibles = bibles(graph),
+        fonts = { LetteringFonts.load(graph.context.assets) },
     )
 
     override fun settingsScreen(): Screen = TranslateSettingsScreen()

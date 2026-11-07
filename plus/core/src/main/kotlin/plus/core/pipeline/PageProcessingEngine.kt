@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.security.MessageDigest
 
 /**
@@ -24,8 +26,8 @@ class PageProcessingEngine(
     private val processors: () -> List<PageProcessor>,
     private val cache: PageCache,
     scope: CoroutineScope,
-    parallelism: Int = 2,
-    maxPending: Int = 6,
+    parallelism: Int = 4,
+    maxPending: Int = 8,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
@@ -51,6 +53,13 @@ class PageProcessingEngine(
 
     private val lock = Any()
     private val inFlight = mutableSetOf<String>()
+
+    /** Each step's own limit on pages at once (see [PageProcessor.concurrency]). */
+    private val permits = mutableMapOf<String, Semaphore>()
+
+    private fun permitsFor(processor: PageProcessor) = synchronized(lock) {
+        permits.getOrPut(processor.id) { Semaphore(processor.concurrency.coerceAtLeast(1)) }
+    }
     private val failedAt = mutableMapOf<String, Long>()
 
     private val queue = LifoWorkQueue(
@@ -123,7 +132,7 @@ class PageProcessingEngine(
         try {
             for (step in steps) {
                 val result = try {
-                    step.processor.process(image, context)
+                    permitsFor(step.processor).withPermit { step.processor.process(image, context) }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Throwable) {

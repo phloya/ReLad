@@ -22,6 +22,8 @@ class PageTranslator(
     private val clientFor: (AiProviderConfig) -> AiClient,
     /** Each title's notes: characters, glossary, story so far. */
     bibles: BibleStore,
+    /** The lettering font, loaded on first use. */
+    private val fonts: () -> LetteringFonts = { LetteringFonts.SYSTEM },
 ) : PageProcessor {
 
     private val text = PageTextTranslator(bibles)
@@ -38,7 +40,11 @@ class PageTranslator(
     override val id = "translate"
     override val order = 300
 
+    /** Mostly waiting for the model's server: several pages at once, so a chapter is ready sooner. */
+    override val concurrency = 4
+
     private val json = Json
+    private val lettering by lazy { fonts() }
 
     override fun signature(context: PageContext): String {
         val s = settings()
@@ -74,7 +80,7 @@ class PageTranslator(
         val bitmap = PageBitmaps.decode(input)
         // Very large pages are decoded smaller; boxes are in original pixels
         val scaled = if (bitmap.width == size.width) regions else regions.scaledTo(bitmap.width.toFloat() / size.width)
-        PageTypesetter.render(bitmap, scaled)
+        PageTypesetter.render(bitmap, scaled, s.language.code, lettering)
         val image = PageBitmaps.encode(bitmap, Bitmap.CompressFormat.JPEG, quality = 95)
         bitmap.recycle()
 
@@ -145,7 +151,7 @@ class PageTranslator(
         const val MAX_MODEL_SIDE = 2048
 
         /** Bump when erasing or typesetting changes: pages already made are then drawn again. */
-        const val RENDER_VERSION = 4
+        const val RENDER_VERSION = 9
         const val MAX_MODEL_BYTES = 4 * 1024 * 1024
 
         /** Claude scales larger images down itself (about 3.75 MP); keep below to know the size. */
