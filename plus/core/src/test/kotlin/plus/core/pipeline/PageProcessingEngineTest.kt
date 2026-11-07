@@ -112,6 +112,25 @@ class PageProcessingEngineTest {
     }
 
     @Test
+    fun `a page's state tells done, failed with why, and waiting`() = runTest {
+        val tag = TagProcessor("a", 1)
+        val engine = engine(tag)
+        val hash = PageProcessingEngine.sha256(original)
+
+        engine.state(hash, context) shouldBe PageProcessingEngine.PageState.Waiting
+        tag.fail = true
+        engine.prepare(original, context)
+        val failed = engine.state(hash, context) as PageProcessingEngine.PageState.Failed
+        failed.error.message shouldBe "a failed"
+
+        tag.fail = false
+        engine.onSettingsChanged()
+        engine.state(hash, context) shouldBe PageProcessingEngine.PageState.Waiting
+        engine.prepare(original, context)
+        engine.state(hash, context) shouldBe PageProcessingEngine.PageState.Done
+    }
+
+    @Test
     fun `a page the reader already asked for is not processed twice`() = runTest {
         val tag = TagProcessor("a", 1)
         val engine = engine(tag)

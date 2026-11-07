@@ -51,4 +51,22 @@
     <string name="plus_ai_provider_check_failed">Не работает: %1$s</string>
     <string name="plus_ai_provider_none_selected">Не выбран</string>
     <string name="plus_ai_provider_choose">ИИ-провайдер</string>
+    <string name="plus_status_translating">Перевод: %1$d из %2$d</string>
+    <string name="plus_status_processing">Re:Lad: %1$d из %2$d стр.</string>
+    <string name="plus_status_done">Перевод готов</string>
+    <string name="plus_status_stopped">Перевод остановлен: %1$s</string>
+    <string name="plus_status_stopped_title">Перевод остановлен</string>
+    <string name="plus_status_stopped_pages">Не готово страниц: %1$d.</string>
+    <string name="plus_status_retry_note">Страницы попробуют снова через минуту или сразу по кнопке «Повторить».</string>
+    <string name="plus_status_retry">Повторить</string>
+    <string name="plus_reason_no_provider">не выбран ИИ-провайдер (Re:Lad → Перевод страницы)</string>
+    <string name="plus_reason_no_key">у ИИ-провайдера нет ключа API</string>
+    <string name="plus_reason_bad_key">ключ API не подходит</string>
+    <string name="plus_reason_no_credits">на счёте у провайдера закончились деньги</string>
+    <string name="plus_reason_rate_limit">слишком много запросов, провайдер просит подождать</string>
+    <string name="plus_reason_no_model">провайдер не знает такую модель</string>
+    <string name="plus_reason_http">провайдер ответил ошибкой (HTTP %1$d)</string>
+    <string name="plus_reason_network">нет связи с провайдером</string>
+    <string name="plus_reason_refused">модель отказалась переводить страницу</string>
+    <string name="plus_reason_bad_answer">модель ответила так, что ответ не разобрать</string>
 </resources>

@@ -52,4 +52,22 @@
     <string name="plus_ai_provider_check_failed">Does not work: %1$s</string>
     <string name="plus_ai_provider_none_selected">Not chosen</string>
     <string name="plus_ai_provider_choose">AI provider</string>
+    <string name="plus_status_translating">Translation: %1$d of %2$d</string>
+    <string name="plus_status_processing">Re:Lad: %1$d of %2$d pages</string>
+    <string name="plus_status_done">Translation ready</string>
+    <string name="plus_status_stopped">Translation stopped: %1$s</string>
+    <string name="plus_status_stopped_title">Translation stopped</string>
+    <string name="plus_status_stopped_pages">Pages not done: %1$d.</string>
+    <string name="plus_status_retry_note">Pages are tried again in a minute, or right away with Retry.</string>
+    <string name="plus_status_retry">Retry</string>
+    <string name="plus_reason_no_provider">no AI provider chosen (Re:Lad → Page translation)</string>
+    <string name="plus_reason_no_key">the AI provider has no API key</string>
+    <string name="plus_reason_bad_key">the API key is not accepted</string>
+    <string name="plus_reason_no_credits">the provider account is out of credits</string>
+    <string name="plus_reason_rate_limit">too many requests, the provider asks to wait</string>
+    <string name="plus_reason_no_model">the provider does not know this model</string>
+    <string name="plus_reason_http">the provider answered with an error (HTTP %1$d)</string>
+    <string name="plus_reason_network">no connection to the provider</string>
+    <string name="plus_reason_refused">the model refused to translate a page</string>
+    <string name="plus_reason_bad_answer">the model answered in a way that could not be read</string>
 </resources>

@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import plus.core.ai.AiClient
+import plus.core.ai.AiException
 import plus.core.ai.AiImage
 import plus.core.ai.AiProviderConfig
 import plus.core.ai.AiProviderType
@@ -35,7 +36,8 @@ class PageTranslator(
         val translateSoundEffects: Boolean,
     )
 
-    class NotConfiguredException : Exception("Choose an AI provider in Re:Lad → Page translation")
+    class NotConfiguredException :
+        AiException("Choose an AI provider in Re:Lad → Page translation", AiException.Kind.NoProvider)
 
     override val id = "translate"
     override val order = 300

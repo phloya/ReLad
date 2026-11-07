@@ -88,6 +88,11 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
         response.usage?.let(usage::add)
         val answer = response.text ?: throw AiException("The model sent no text", AiException.Kind.BadResponse)
         val page = TranslationParser.parsePage(answer, width, height, units, image.width, image.height)
+        // A model that won't translate a page often says so in its page notes instead of refusing
+        // outright: that is a refusal (shown to the reader), not a page without text, and no note
+        if (page.regions.isEmpty() && Refusals.looksLike(page.findings.summary)) {
+            throw AiException(page.findings.summary.trim().take(MAX_REFUSAL), AiException.Kind.Refused)
+        }
         var regions = page.regions
             .filter { translateSoundEffects || it.type.erasesOriginal }
             .map { it.copy(translation = Orthography.fix(language.code, it.translation)) }
@@ -141,6 +146,9 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
 
     private companion object {
         const val FIX_MAX_TOKENS = 2048
+
+        /** A refusal is shown to the reader: its first sentences are enough. */
+        const val MAX_REFUSAL = 300
         const val MAX_GENRES = 12
     }
 }

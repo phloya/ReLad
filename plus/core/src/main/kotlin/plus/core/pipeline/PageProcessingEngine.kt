@@ -36,6 +36,18 @@ class PageProcessingEngine(
 
     class Failure(val originalHash: String, val processorId: String, val error: Throwable)
 
+    /** Where a page stands, for showing the reader how a chapter is getting on. */
+    sealed interface PageState {
+        /** Every active step is done (or there are none). */
+        data object Done : PageState
+
+        /** A step failed a moment ago; retried after [RETRY_AFTER_MS] or when settings change. */
+        class Failed(val error: Throwable) : PageState
+
+        /** Not done yet: waiting or being processed. */
+        data object Waiting : PageState
+    }
+
     private val _completed = MutableSharedFlow<String>(extraBufferCapacity = 64)
 
     /** Hashes of original pages whose processed version just became available. */
@@ -61,6 +73,7 @@ class PageProcessingEngine(
         permits.getOrPut(processor.id) { Semaphore(processor.concurrency.coerceAtLeast(1)) }
     }
     private val failedAt = mutableMapOf<String, Long>()
+    private val failedWith = mutableMapOf<String, Throwable>()
 
     private val queue = LifoWorkQueue(
         scope = scope,
@@ -71,7 +84,10 @@ class PageProcessingEngine(
 
     /** Call when any processor's settings change, so pages get reprocessed with the new ones. */
     fun onSettingsChanged() {
-        synchronized(lock) { failedAt.clear() }
+        synchronized(lock) {
+            failedAt.clear()
+            failedWith.clear()
+        }
         _settingsVersion.update { it + 1 }
     }
 
@@ -141,6 +157,15 @@ class PageProcessingEngine(
         return clock() - failed < RETRY_AFTER_MS
     }
 
+    /** Where the page whose original has [originalHash] stands with the current settings. Cheap: no image is read. */
+    fun state(originalHash: String, context: PageContext): PageState {
+        val finalKey = activeSteps(originalHash, context).lastOrNull()?.key ?: return PageState.Done
+        if (cache.contains(finalKey)) return PageState.Done
+        return synchronized(lock) {
+            failedWith[finalKey]?.takeIf { recentlyFailed(finalKey) }?.let { PageState.Failed(it) } ?: PageState.Waiting
+        }
+    }
+
     /** Metadata the last step stored for this page (e.g. translated text regions), if any. */
     fun metadata(original: ByteArray, context: PageContext): String? {
         val steps = activeSteps(sha256(original), context)
@@ -162,7 +187,10 @@ class PageProcessingEngine(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Throwable) {
-                    synchronized(lock) { failedAt[finalKey] = clock() }
+                    synchronized(lock) {
+                        failedAt[finalKey] = clock()
+                        failedWith[finalKey] = e
+                    }
                     _failures.tryEmit(Failure(originalHash, step.processor.id, e))
                     return
                 }

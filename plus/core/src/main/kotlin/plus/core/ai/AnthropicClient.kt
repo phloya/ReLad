@@ -97,7 +97,7 @@ class AnthropicClient(
             val category = (body["stop_details"] as? JsonObject)?.get("category")?.jsonPrimitive?.contentOrNull
             throw AiException(
                 "${config.name}: Claude declined the request" + (category?.let { " ($it)" } ?: ""),
-                AiException.Kind.BadResponse,
+                AiException.Kind.Refused,
             )
         }
         val text = (body["content"] as? JsonArray).orEmpty()

@@ -93,8 +93,17 @@ data class AiUsage(
     val reportedCostUsd: Double? = null,
 )
 
-class AiException(message: String, val kind: Kind, cause: Throwable? = null) : Exception(message, cause) {
+open class AiException(
+    message: String,
+    val kind: Kind,
+    cause: Throwable? = null,
+    /** The provider's HTTP status for [Kind.Http]: 401 bad key, 402 no credits, 429 too many requests... */
+    val httpCode: Int? = null,
+) : Exception(message, cause) {
     enum class Kind {
+        /** No AI provider chosen for the feature. */
+        NoProvider,
+
         /** No API key saved for the provider. */
         NoKey,
 
@@ -104,8 +113,11 @@ class AiException(message: String, val kind: Kind, cause: Throwable? = null) : E
         /** The request never got an answer (no internet, timeout). */
         Network,
 
-        /** The answer could not be understood, or the model refused. */
+        /** The answer could not be understood. */
         BadResponse,
+
+        /** The model would not do it (its rules: what is on the page). */
+        Refused,
 
         /** The provider type cannot do what was asked (e.g. Claude cannot return images). */
         Unsupported,

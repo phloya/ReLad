@@ -41,7 +41,11 @@ abstract class HttpAiClient(
             throw AiException("${config.name}: ${e.message}", AiException.Kind.Network, e)
         }
         if (code !in 200..299) {
-            throw AiException("${config.name}: HTTP $code ${errorMessage(text)}", AiException.Kind.Http)
+            throw AiException(
+                "${config.name}: HTTP $code ${errorMessage(text)}",
+                AiException.Kind.Http,
+                httpCode = code,
+            )
         }
         val body = try {
             withContext(Dispatchers.Default) { json.parseToJsonElement(text) as JsonObject }
