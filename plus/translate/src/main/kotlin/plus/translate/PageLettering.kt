@@ -182,7 +182,13 @@ object PageLettering {
         val upper = region.type == RegionType.Sfx || LetterCase.upper(region.text, region.type)
         val text = LetterCase.apply(region.translation, upper, locale)
         val font = fonts.measurer(text, bold = region.type == RegionType.Sfx)
-        if (!region.type.erasesOriginal) return Plan(region, text, font, null, null, null, font.lineHeight, locale)
+        if (!region.type.erasesOriginal) {
+            // A sound effect drawn on plain light background (not over art) is erased like a
+            // bubble's text: the translation alone looks cleaner than over the original's letters
+            val plain = BubbleEraser.analyze(pixels, width, height, region.box, searchBox(region.box, width, height))
+                .takeIf { !it.onArt && it.coverage >= MIN_COVERAGE && it.fill >= MIN_FILL }
+            return Plan(region, text, font, plain, null, null, font.lineHeight, locale)
+        }
 
         val bubble = BubbleEraser.analyze(
             pixels = pixels,
@@ -266,16 +272,14 @@ object PageLettering {
         when {
             sfx -> {
                 // A floating line may grow downwards: its box was only roughly where the text is
-                room =
-                    if (plan.floating) {
-                        Room.of(
-                            region.box.grown(region.box.height, width, height),
-                        )
-                    } else {
-                        Room.of(region.box)
-                    }
+                room = if (plan.floating) {
+                    Room.of(region.box.grown(region.box.height, width, height))
+                } else {
+                    // A little over the original's edges, so the translation covers it
+                    Room.of(region.box.grown((region.box.height * SFX_OVER).toInt(), width, height))
+                }
                 style = TextBlockLayout.Style(font, plan.lineHeight, 0f, 0f)
-                // A sound effect's translation stays small: the drawn original is part of the art
+                // About the original's size: a smaller translation mixes with the original's letters
                 if (region.type == RegionType.Sfx) {
                     target = minOf(region.box.height * SFX_FILL / font.capHeight, width * SFX_MAX_SIZE)
                 }
@@ -426,9 +430,10 @@ object PageLettering {
     private const val OUTLINE_SEARCH = 0.45f
     private const val ART_OUTLINE = 0.22f
 
-    private const val SFX_FILL = 0.6f
-    private const val SFX_MAX_SIZE = 0.055f
-    private const val SFX_OUTLINE = 0.18f
+    private const val SFX_FILL = 0.85f
+    private const val SFX_MAX_SIZE = 0.09f
+    private const val SFX_OUTLINE = 0.24f
+    private const val SFX_OVER = 0.15f
 
     private const val LIGHT_FILL = 190
     private const val DARK_FILL = 110
