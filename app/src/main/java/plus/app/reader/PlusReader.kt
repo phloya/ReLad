@@ -95,6 +95,8 @@ object PlusReader {
                 // Runs on the reader's IO thread; the lookup is a map read once sources are loaded
                 runBlocking { activity.appGraph.sourceManager.get(manga.source)?.lang }.orEmpty()
             }.ifEmpty { null },
+            mangaDescription = manga.description,
+            mangaGenres = manga.genre.orEmpty(),
         )
     }
 

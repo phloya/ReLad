@@ -41,4 +41,7 @@ data class PageContext(
     val pageIndex: Int,
     /** Language of the source the manga comes from (e.g. "ja"), if known. "all" or `null` when unknown. */
     val sourceLanguage: String?,
+    /** The source's description of the manga, for translators to know what it is about. */
+    val mangaDescription: String? = null,
+    val mangaGenres: List<String> = emptyList(),
 )
