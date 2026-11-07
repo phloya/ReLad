@@ -42,6 +42,16 @@ Workflow Mihon `build.yml` (сборка, тесты, стиль кода на �
 работает у нас без изменений. Workflow `release.yml` Mihon запускается только в
 `mihonapp/mihon`, у нас его заменяет `relad-release.yml`.
 
+## Основа для функций (ветка `relad/core`)
+
+| Файл Mihon | Что изменено | Зачем |
+|---|---|---|
+| `settings.gradle.kts` | Вместо `include(":plus:core")` подключаются все папки `plus/*` с `build.gradle.kts` | Новый модуль функции (`plus/translate`…) не требует правки файлов Mihon, и ветки функций не конфликтуют между собой |
+| `app/build.gradle.kts` → `dependencies` | Вместо `implementation(projects.plus.core)` приложение зависит от всех модулей `plus/*` | То же |
+| `app/.../presentation/more/MoreScreen.kt` | Пункт `PlusMoreEntry()` после переключателей «Только скачанное» и «Инкогнито» | Вход на экран Re:Lad |
+| `app/.../reader/viewer/pager/PagerPageHolder.kt` | `page.statusFlow` → `PlusReader.statusFlow(...)`, `page.stream` → `PlusReader.stream(...)` | Страница проходит через конвейер Re:Lad (перевод, улучшение, раскраска) и перезагружается, когда готова обработанная версия |
+| `app/.../reader/viewer/webtoon/WebtoonPageHolder.kt` | То же для режима ленты | То же |
+
 ## Наши файлы (конфликтов с Mihon не бывает)
 
 | Путь | Что это |
@@ -50,7 +60,9 @@ Workflow Mihon `build.yml` (сборка, тесты, стиль кода на �
 | `plus/app-res/release/` | Название «Re:Lad» и фон иконки для выпусков |
 | `plus/app-res/dev/` | Название «Re:Lad Dev» и тёмный фон иконки для отладочных сборок |
 | `app/src/main/java/plus/app/donate/PlusDonateScreen.kt` | Экран донатов Re:Lad. Ссылки задаются в `PlusDonations.links`; пока список пуст, пункт меню скрыт |
-| `plus/core/` | Модуль `:plus:core`, пока пустой. Наполняется в M1 |
+| `plus/core/` | Модуль `:plus:core`: конвейер страниц (`pipeline/`), кеш обработанных страниц, подключение к ИИ (`ai/`: OpenAI-совместимые, Gemini, Claude), зашифрованное хранилище ключей (`secret/`), настройки (`settings/`) |
+| `app/src/main/java/plus/app/` | Наш код внутри приложения: `Plus.kt` (общие объекты), `PlusFeature.kt` (список функций), `reader/PlusReader.kt` (две точки входа в читалку), `ui/` (экран Re:Lad и ИИ-провайдеры), по пакету на функцию (`translate/`, `enhance/`, `colorize/`) |
+| `plus/tools/test-manga/` | Генератор тестовой главы (облачка на японском, корейском, китайском, английском) для проверки на эмуляторе |
 | `plus/README.md`, `plus/PLAN.md`, `plus/LICENSES.md` | Описание папки, план проекта, реестр лицензий |
 | `.github/README.md` | Страница Re:Lad на GitHub. GitHub показывает её вместо корневого `README.md` Mihon, который мы не трогаем |
 | `.github/workflows/relad-release.yml` | Выпуск по тегу `relad-vX.Y.Z`: подписанные APK, проверка отпечатка подписи, черновик выпуска |

@@ -4,4 +4,52 @@
     <string name="plus_based_on_mihon">Based on Mihon</string>
     <string name="plus_based_on_mihon_summary">Re:Lad is a fork of the open source Mihon reader (Apache 2.0)</string>
     <string name="plus_donate_intro">Re:Lad is an independent project. If you enjoy it, you can support its development:</string>
+
+    <!-- Re:Lad screen -->
+    <string name="plus_relad_summary">Translation, scan enhancement, colorization</string>
+    <string name="plus_section_features">Features</string>
+    <string name="plus_section_ai">AI</string>
+    <string name="plus_section_storage">Storage</string>
+    <string name="plus_feature_soon">Coming soon</string>
+    <string name="plus_feature_on">On</string>
+    <string name="plus_feature_off">Off</string>
+    <string name="plus_feature_translate">Page translation</string>
+    <string name="plus_feature_translate_summary">Speech bubbles, sound effects and captions are translated right on the page</string>
+    <string name="plus_feature_enhance">Scan enhancement</string>
+    <string name="plus_feature_enhance_summary">A neural network sharpens and upscales blurry or compressed pages</string>
+    <string name="plus_feature_colorize">Colorization</string>
+    <string name="plus_feature_colorize_summary">A neural network colors black-and-white pages</string>
+    <string name="plus_feature_pipeline_check">Pipeline check (Dev)</string>
+    <string name="plus_feature_pipeline_check_summary">Draws a red frame on every page to check that pages go through Re:Lad</string>
+    <string name="plus_feature_enabled">Turn on</string>
+    <string name="plus_cache_clear">Clear processed pages</string>
+    <string name="plus_cache_summary">Used: %1$s</string>
+    <string name="plus_cache_cleared">Processed pages cleared</string>
+    <string name="plus_error">Re:Lad: %1$s</string>
+
+    <!-- AI providers -->
+    <string name="plus_ai_providers">AI providers</string>
+    <string name="plus_ai_providers_summary_none">None yet. Translation and colorization need one</string>
+    <string name="plus_ai_providers_summary">Added: %1$d</string>
+    <string name="plus_ai_providers_intro">Re:Lad talks to AI services with your own API keys. Keys are stored encrypted on this device and are not included in backups.</string>
+    <string name="plus_ai_provider_add">Add provider</string>
+    <string name="plus_ai_provider_edit">AI provider</string>
+    <string name="plus_ai_provider_name">Name</string>
+    <string name="plus_ai_provider_type">API</string>
+    <string name="plus_ai_provider_type_openai">OpenAI-compatible (OpenRouter, OpenAI, local server…)</string>
+    <string name="plus_ai_provider_type_gemini">Google Gemini</string>
+    <string name="plus_ai_provider_type_anthropic">Anthropic Claude</string>
+    <string name="plus_ai_provider_base_url">Address (base URL)</string>
+    <string name="plus_ai_provider_model">Model</string>
+    <string name="plus_ai_provider_model_hint">Model ID exactly as the provider names it</string>
+    <string name="plus_ai_provider_key">API key</string>
+    <string name="plus_ai_provider_key_saved">Saved. Type a new key to replace it</string>
+    <string name="plus_ai_provider_save">Save</string>
+    <string name="plus_ai_provider_delete">Delete</string>
+    <string name="plus_ai_provider_check">Check connection</string>
+    <string name="plus_ai_provider_checking">Checking…</string>
+    <string name="plus_ai_provider_check_ok">Works. The model answered: %1$s</string>
+    <string name="plus_ai_provider_check_failed">Does not work: %1$s</string>
+    <string name="plus_ai_provider_none_selected">Not chosen</string>
+    <string name="plus_ai_provider_choose">AI provider</string>
 </resources>

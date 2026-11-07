@@ -23,6 +23,7 @@ import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import okio.Buffer
 import okio.BufferedSource
+import plus.app.reader.PlusReader
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
@@ -96,7 +97,9 @@ class PagerPageHolder(
             launch(Dispatchers.IO) {
                 loader.loadPage(page)
             }
-            page.statusFlow.collectLatest { state ->
+            // PLUS --> Re:Lad re-sends the status when a processed version of the page is ready (was page.statusFlow)
+            PlusReader.statusFlow(viewer.activity, page).collectLatest { state ->
+                // PLUS <--
                 when (state) {
                     Page.State.Queue -> setQueued()
                     Page.State.LoadPage -> setLoading()
@@ -146,7 +149,9 @@ class PagerPageHolder(
     private suspend fun setImage() {
         progressIndicator?.setProgress(0)
 
-        val streamFn = page.stream ?: return
+        // PLUS --> Re:Lad shows the processed page (translated, enhanced...) once it has one (was page.stream)
+        val streamFn = PlusReader.stream(viewer.activity, page) ?: return
+        // PLUS <--
 
         try {
             val buffer = withContext(Dispatchers.IO) { streamFn().use { Buffer().readFrom(it) } }
