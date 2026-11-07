@@ -70,12 +70,13 @@ class PageEnhancer(
                 val upscaler = upscaler(s, model, files)
                 val bitmap = PageBitmaps.decode(input)
                 val started = System.currentTimeMillis()
-                val whitened = s.whitenPaper && whiten(bitmap)
+                val prepared = prepare(bitmap, whitenPaper = s.whitenPaper, smoothTone = true)
                 val result = try {
                     upscaler.process(bitmap)
                 } finally {
                     bitmap.recycle()
                 }
+                prepared.tone?.let { restoreTexture(result, it) }
                 lastRun = Run(
                     width = size.width,
                     height = size.height,
@@ -83,8 +84,9 @@ class PageEnhancer(
                     gpu = upscaler.usesGpu,
                     strength = strength,
                     jpegQuality = ScanQuality.jpegQuality(input),
-                    whitened = whitened,
+                    whitened = prepared.whitened,
                     cloudModel = null,
+                    toneShare = prepared.tone?.share,
                 )
                 val bytes = PageBitmaps.encode(result, Bitmap.CompressFormat.JPEG, quality = 95)
                 result.recycle()
@@ -107,7 +109,7 @@ class PageEnhancer(
             withContext(Dispatchers.Default) {
                 val bitmap = PageBitmaps.decode(input)
                 try {
-                    whitened = whiten(bitmap)
+                    whitened = prepare(bitmap, whitenPaper = true, smoothTone = false).whitened
                     if (whitened) PageBitmaps.encode(bitmap, Bitmap.CompressFormat.JPEG, quality = 95) else input
                 } finally {
                     bitmap.recycle()
@@ -132,14 +134,35 @@ class PageEnhancer(
         return ProcessedPage(result)
     }
 
-    /** Whitens the paper of [bitmap] in place; `false` if the page was left as it is. */
-    private fun whiten(bitmap: Bitmap): Boolean {
-        val pixels = IntArray(bitmap.width * bitmap.height)
-        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-        val gains = PaperWhitening.analyze(pixels) ?: return false
-        PaperWhitening.apply(pixels, gains)
-        bitmap.setPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-        return true
+    private class Prepared(val whitened: Boolean, val tone: Screentone.Smoothed?)
+
+    /**
+     * Gets [bitmap] ready for the network, in place: whitens the paper and smooths screentone the
+     * network would turn into "worms" ([Screentone]; its texture goes back in [restoreTexture]).
+     * Pages for the cloud keep their tone: those are other models.
+     */
+    private fun prepare(bitmap: Bitmap, whitenPaper: Boolean, smoothTone: Boolean): Prepared {
+        val w = bitmap.width
+        val h = bitmap.height
+        val pixels = IntArray(w * h)
+        bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+        val gains = if (whitenPaper) PaperWhitening.analyze(pixels) else null
+        gains?.let { PaperWhitening.apply(pixels, it) }
+        val tone = if (smoothTone) Screentone.smooth(pixels, w, h) else null
+        if (gains != null || tone != null) bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
+        return Prepared(whitened = gains != null, tone = tone)
+    }
+
+    /** Puts the screentone's texture back into the network's [result], a band of rows at a time. */
+    private fun restoreTexture(result: Bitmap, tone: Screentone.Smoothed) {
+        val w = result.width
+        val band = IntArray(w * TEXTURE_BAND)
+        for (y in 0 until result.height step TEXTURE_BAND) {
+            val rows = minOf(TEXTURE_BAND, result.height - y)
+            result.getPixels(band, 0, w, 0, y, w, rows)
+            tone.restoreTexture(band, y, rows)
+            result.setPixels(band, 0, w, 0, y, w, rows)
+        }
     }
 
     /** Last processed page, for the settings screen ("1000×1500 in 2.1 s on the GPU, strong cleaning"). */
@@ -154,6 +177,8 @@ class PageEnhancer(
         val whitened: Boolean,
         /** Set when the page was upscaled on Replicate. */
         val cloudModel: String?,
+        /** Share of the page smoothed as screentone, `null` if none was ([Screentone]). */
+        val toneShare: Float? = null,
     )
 
     @Volatile
@@ -175,8 +200,12 @@ class PageEnhancer(
         /**
          * 1: waifu2x. 2: Real-CUGAN, SE features from 32 px samples (washed clean pages out).
          * 3: Real-CUGAN, SE features from the real tiles.
+         * 4: unresolvable screentone smoothed before the network (the tone came out flat, "soapy").
+         * 5: its texture put back after the network.
+         * 6: automatic strength only Conservative or Light (no Medium/Strong).
          */
-        const val VERSION = 3
+        const val VERSION = 6
         const val TILE_SIZE = 200
+        const val TEXTURE_BAND = 128
     }
 }

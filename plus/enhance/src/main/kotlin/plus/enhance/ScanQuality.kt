@@ -37,15 +37,16 @@ object ScanQuality {
     }
 
     /**
-     * Picked on test scans (plus/tools/enhance-bench): Strong removes blocks and grey paper but
-     * smears screentone on scans that do not need it; Conservative keeps clean scans as they are.
+     * Picked on real scans spoiled on purpose and compared with the clean page
+     * (plus/tools/enhance-bench, plus/DECISIONS.md): Conservative keeps the most detail, dots and
+     * tone gradients down to JPEG 40 %; below 50 % Light also clears the blocks and grain. Medium
+     * and Strong were never the closest to the clean page and turn gradients into flat patches,
+     * so automatic mode does not use them (they stay for manual choice).
      */
-    fun strengthForJpeg(quality: Int): Strength = when {
-        quality < 25 -> Strength.Strong
-        quality < 50 -> Strength.Medium
-        quality < 75 -> Strength.Light
-        else -> Strength.Conservative
-    }
+    fun strengthForJpeg(quality: Int): Strength = if (quality < 50) Strength.Light else Strength.Conservative
+
+    /** The strengths automatic mode can pick: only their models need downloading. */
+    val autoStrengths: List<Strength> = listOf(Strength.Conservative, Strength.Light)
 
     private fun isLossyWebp(bytes: ByteArray): Boolean =
         bytes.size >= 16 &&

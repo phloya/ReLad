@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="plus_enhance_strength">Сила очистки</string>
-    <string name="plus_enhance_strength_summary">Насколько сильно убирать шум и квадратики JPEG. Сильнее — чище, но может сгладить мелкий растр</string>
+    <string name="plus_enhance_strength_summary">Насколько сильно убирать шум и квадратики JPEG. «Средне» и «Сильно» чище, но стирают мелкие детали и переходы тона</string>
     <string name="plus_enhance_strength_auto">Автоматически, по тому, как сжата страница</string>
     <string name="plus_enhance_strength_conservative">Бережно</string>
     <string name="plus_enhance_strength_light">Слабо</string>
