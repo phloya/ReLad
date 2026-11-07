@@ -527,10 +527,20 @@ object PageLettering {
         val pitch = lines.zipWithNext { a, b -> kotlin.math.hypot(b.centerX - a.centerX, b.centerY - a.centerY) }
             .sorted().let { if (it.isEmpty()) null else it[it.size / 2] }
         // The letters' height across the line, edge included: a capital with its outline
-        val cap = if (LetterCase.upper(region.text, region.type)) {
+        val measuredCap = if (LetterCase.upper(region.text, region.type)) {
             art.letterHeight
         } else {
             art.letterHeight * font.capHeight / font.xHeight
+        }
+        // Pieces of the lines around taken in give letters far too tall for the box and its text
+        // (a one-line caption 33 px high read as 60 px letters, set huge over its neighbours)
+        val roughCap = roughCap(region, LetterCase.isCjk(region.text))
+        val cap = if (roughCap == null ||
+            measuredCap in roughCap * MIN_TRUST..roughCap * MAX_TRUST
+        ) {
+            measuredCap
+        } else {
+            roughCap
         }
         val ink = InkMeasure.Ink(
             Box(left, top, right, bottom),
@@ -900,7 +910,12 @@ object PageLettering {
         // Smaller first, in the bubble's shape: a letterer shrinks a line before splitting a word
         // (as small as it takes for the longest word to fit the bubble's width, if that's smaller)
         val wordFits = if (words.widest > 0) (right - left) * WORD_FIT / words.widest else size
-        val smallest = maxOf(minOf(size * LAST_RESORT_SCALE, wordFits), MIN_PIXELS)
+        val smallest = if (inShape) {
+            // Beside another text: a little smaller, not tiny (then rather the whole bubble)
+            maxOf(size * BESIDE_SCALE, MIN_PIXELS)
+        } else {
+            maxOf(minOf(size * LAST_RESORT_SCALE, wordFits), MIN_PIXELS)
+        }
         TextBlockLayout.place(
             words,
             room,
@@ -929,6 +944,9 @@ object PageLettering {
 
     /** Before a word is split, text may get this much smaller than its smallest normal size... */
     private const val LAST_RESORT_SCALE = 0.7f
+
+    /** Beside another text in its bubble, text gets at most this much smaller than its smallest normal size. */
+    private const val BESIDE_SCALE = 0.8f
 
     /** The longest word takes at most this share of the bubble's widest row. */
     private const val WORD_FIT = 0.65f

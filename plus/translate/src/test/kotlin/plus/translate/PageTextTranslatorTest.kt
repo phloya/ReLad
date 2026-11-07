@@ -72,8 +72,8 @@ class PageTextTranslatorTest {
         first.system!! shouldContain "Genres: Action"
         first.system!! shouldContain "# Characters\nNone yet"
         first.images shouldHaveSize 1
-        // No hidden reasoning: the boxes are put onto the page's text afterwards ([TextPlacer])
-        first.effort shouldBe AiEffort.None
+        // Some hidden reasoning: without it text goes missing on long strips
+        first.effort shouldBe AiEffort.Low
         one.regions.single().speaker shouldBe "炭治郎"
 
         // Page 2: same rules, the notes now carry the name and the term, the prompt the previous lines

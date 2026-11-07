@@ -21,11 +21,12 @@ import plus.translate.bible.TranslationChecks
 internal class PageTextTranslator(
     private val bibles: BibleStore,
     /**
-     * Hidden reasoning for a page's request: none. Without it the answer comes 2–3 times sooner
-     * but the boxes are rougher; [TextPlacer] puts them onto the text found on the page. (The
-     * live test compares levels.)
+     * Hidden reasoning for a page's request: some, not none. Without it the answer comes 2–3 times
+     * sooner, and [TextPlacer] puts its rougher boxes onto the page's text well enough; but text
+     * goes missing: on webtoon strips sent in parts Haiku read 87 % of the texts it reads with
+     * reasoning, one strip lost 10 of its 11 (plus/DECISIONS.md). The live test compares levels.
      */
-    private val pageEffort: AiEffort = AiEffort.None,
+    private val pageEffort: AiEffort = AiEffort.Low,
 ) {
 
     class Result(val regions: List<TextRegion>, val usage: PageUsage?, val fixedLines: Int)
