@@ -44,6 +44,7 @@ class PageTranslator(
         val s = settings()
         return listOf(
             "v${TranslationPrompt.VERSION}",
+            "r$RENDER_VERSION",
             s.provider?.id ?: "none",
             s.provider?.model ?: "",
             s.language.code,
@@ -142,6 +143,9 @@ class PageTranslator(
 
     private companion object {
         const val MAX_MODEL_SIDE = 2048
+
+        /** Bump when erasing or typesetting changes: pages already made are then drawn again. */
+        const val RENDER_VERSION = 2
         const val MAX_MODEL_BYTES = 4 * 1024 * 1024
 
         /** Claude scales larger images down itself (about 3.75 MP); keep below to know the size. */

@@ -3,6 +3,7 @@ package plus.translate
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import org.junit.jupiter.api.Test
 
 class BubbleEraserTest {
@@ -101,5 +102,60 @@ class BubbleEraserTest {
 
         result.erased.shouldBeNull()
         page[20, 20] shouldBe gray
+    }
+
+    @Test
+    fun `a closed bubble is erased whole, also a line the model's box missed`() {
+        val page = Page()
+        page.bubble(cx = 100, cy = 100, rx = 70, ry = 45)
+        page.rect(80, 70, 120, 74, black) // first line, above the model's box
+        page.rect(80, 95, 120, 99, black)
+
+        val result = BubbleEraser.erase(
+            page.pixels,
+            page.width,
+            page.height,
+            Box(78, 90, 122, 104),
+            Box(0, 0, 200, 200),
+        )
+
+        page[100, 72] shouldBe white
+        page[100, 97] shouldBe white
+        page[100, 55] shouldBe black // the outline stays
+        result.rows.shouldNotBeNull()
+    }
+
+    @Test
+    fun `an open bubble does not spill white onto the art beside it`() {
+        val page = Page()
+        page.rect(0, 0, 200, 200, 0xFFE0E0E0.toInt()) // light gray art, light enough to be filled
+        page.bubble(cx = 120, cy = 100, rx = 60, ry = 40)
+        page.rect(55, 90, 75, 110, white) // the outline is open on the left
+        page.rect(100, 95, 140, 99, black)
+
+        val result = BubbleEraser.erase(
+            page.pixels,
+            page.width,
+            page.height,
+            Box(60, 85, 150, 110),
+            Box(0, 0, 200, 200),
+        )
+
+        page[120, 97] shouldNotBe black
+        page[20, 100] shouldBe 0xFFE0E0E0.toInt()
+        result.rows.shouldBeNull()
+    }
+
+    @Test
+    fun `light letters on dark art are left for a label`() {
+        val page = Page()
+        page.rect(0, 0, 200, 200, 0xFF303030.toInt())
+        page.rect(60, 90, 64, 110, white)
+        page.rect(80, 90, 84, 110, white)
+
+        val result = BubbleEraser.erase(page.pixels, page.width, page.height, Box(55, 85, 90, 115), Box(0, 0, 200, 200))
+
+        result.onArt shouldBe true
+        page[62, 100] shouldBe white
     }
 }
