@@ -61,7 +61,7 @@ object TranslationPrompt {
             - Jokes and wordplay: recreate the effect in ${language.promptName} rather than the literal words; if
               that is impossible, keep the meaning the plot needs.
             - ${soundEffectRule(translateSoundEffects, language)}
-            - Leave out page numbers, watermarks and scanlation credits.
+            - Leave out page numbers, watermarks, scanlation credits and the series' logo or title lettering.
 
             # ${language.promptName}
             {STYLE}

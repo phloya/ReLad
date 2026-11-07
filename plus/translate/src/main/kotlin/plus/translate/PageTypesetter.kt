@@ -41,20 +41,67 @@ object PageTypesetter {
                         height,
                     ),
                 )
-                val area = result.erased?.let { insetForText(it, region.box, result.enclosed, width, height) }
-                    ?: region.box
-                Placement(region, area, dark = BubbleEraser.luminance(result.background) >= 128, outlined = false)
+                when {
+                    // Light letters on dark art: a clean label over them instead of patchy erasing
+                    result.onArt -> Placement(region, region.box, dark = true, outlined = false, label = true)
+                    else -> {
+                        val area = result.erased?.let { insetForText(it, region.box, result.enclosed, width, height) }
+                            ?: region.box
+                        val dark = BubbleEraser.luminance(result.background) >= 128
+                        val shaped = result.rows?.let { rows -> result.erased?.let { Shape(it, rows) } }
+                        Placement(region, area, dark = dark, outlined = false, shape = shaped)
+                    }
+                }
             } else {
                 Placement(region, region.box, dark = true, outlined = true)
             }
         }
+        // Labels cover the original text: paint them before any text is drawn
+        placements.filter { it.label }.forEach { paintLabel(pixels, width, height, it.region.box) }
         bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
 
         val canvas = Canvas(bitmap)
         placements.forEach { draw(canvas, it, width) }
     }
 
-    private class Placement(val region: TextRegion, val area: Box, val dark: Boolean, val outlined: Boolean)
+    private class Placement(
+        val region: TextRegion,
+        val area: Box,
+        val dark: Boolean,
+        val outlined: Boolean,
+        val label: Boolean = false,
+        val shape: Shape? = null,
+    )
+
+    /** A bubble's interior row by row (see [BubbleEraser.Result.rows]). */
+    private class Shape(val box: Box, val rows: IntArray) {
+        val centerX = (box.left + box.right) / 2f
+        val centerY = (box.top + box.bottom) / 2f
+
+        /** The widest text block centred on the bubble that fits between rows [top] and [bottom]. */
+        fun widthBetween(top: Float, bottom: Float, padding: Float): Float {
+            var half = Float.MAX_VALUE
+            for (y in top.toInt() until kotlin.math.ceil(bottom).toInt()) {
+                val i = (y - box.top) * 2
+                if (i < 0 || i + 1 >= rows.size || rows[i] < 0) return 0f
+                half = minOf(half, centerX - rows[i], rows[i + 1] - centerX)
+            }
+            return if (half == Float.MAX_VALUE) 0f else (2 * (half - padding)).coerceAtLeast(0f)
+        }
+    }
+
+    /** A rounded light label over the original text, a little larger than its box. */
+    private fun paintLabel(pixels: IntArray, width: Int, height: Int, box: Box) {
+        val label = box.expanded(LABEL_MARGIN, width, height)
+        val radius = minOf(label.width, label.height) * 0.18f
+        for (y in label.top until label.bottom) {
+            for (x in label.left until label.right) {
+                val dx = maxOf(label.left + radius - x, x - (label.right - 1 - radius), 0f)
+                val dy = maxOf(label.top + radius - y, y - (label.bottom - 1 - radius), 0f)
+                if (dx * dx + dy * dy <= radius * radius) pixels[y * width + x] = LABEL_COLOR
+            }
+        }
+    }
 
     /**
      * Text goes in the middle part of the erased bubble (bubbles are round, corners are outside),
@@ -76,15 +123,16 @@ object PageTypesetter {
     }
 
     private fun draw(canvas: Canvas, placement: Placement, pageWidth: Int) {
-        val area = placement.area
         val text = placement.region.translation
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = Typeface.DEFAULT_BOLD
             color = if (placement.dark) Color.BLACK else Color.WHITE
         }
-        val maxSize = maxOf(MIN_TEXT_SIZE_FRACTION * pageWidth, area.height * 0.9f).coerceAtMost(pageWidth * 0.12f)
         val minSize = MIN_TEXT_SIZE_FRACTION * pageWidth
-        val layout = fit(text, paint, area, minSize, maxSize)
+        val shaped = placement.shape?.let { fitShape(text, paint, it, minSize, pageWidth * 0.12f) }
+        val area = shaped?.first ?: placement.area
+        val maxSize = maxOf(MIN_TEXT_SIZE_FRACTION * pageWidth, area.height * 0.9f).coerceAtMost(pageWidth * 0.12f)
+        val layout = shaped?.second ?: fit(text, paint, area, minSize, maxSize)
         val top = area.top + (area.height - layout.height) / 2f
 
         canvas.save()
@@ -101,6 +149,52 @@ object PageTypesetter {
         }
         layout.draw(canvas)
         canvas.restore()
+    }
+
+    /**
+     * The largest text size whose lines fit the bubble's real shape: in a round bubble the block
+     * may be wide in the middle only as high as the bubble stays that wide. `null` when even the
+     * smallest size doesn't fit (the box fit is used then).
+     */
+    private fun fitShape(text: String, paint: TextPaint, shape: Shape, minSize: Float, maxSize: Float):
+        Pair<Box, StaticLayout>? {
+        val padX = shape.box.width * SHAPE_PADDING + 2
+        val padY = shape.box.height * SHAPE_PADDING + 2
+        val maxHeight = shape.box.height - 2 * padY
+
+        fun attempt(size: Float): Pair<Box, StaticLayout>? {
+            paint.textSize = size
+            var blockHeight = paint.fontSpacing
+            repeat(SHAPE_STEPS) {
+                if (blockHeight > maxHeight) return null
+                val top = shape.centerY - blockHeight / 2
+                val width = shape.widthBetween(top, top + blockHeight, padX)
+                if (width < size * 2) return null
+                val layout = build(text, paint, width.toInt())
+                if (layout.height <= blockHeight + 0.5f && !layout.hasBrokenWords()) {
+                    val left = (shape.centerX - width / 2).toInt()
+                    return Box(left, top.toInt(), left + width.toInt(), (top + blockHeight).toInt()) to layout
+                }
+                blockHeight = maxOf(layout.height.toFloat(), blockHeight + paint.fontSpacing / 2)
+            }
+            return null
+        }
+
+        var best = attempt(minSize) ?: return null
+        var low = minSize
+        var high = maxOf(minSize, maxSize)
+        repeat(FIT_STEPS) {
+            val mid = (low + high) / 2
+            val found = attempt(mid)
+            if (found != null) {
+                best = found
+                low = mid
+            } else {
+                high = mid
+            }
+        }
+        paint.textSize = low
+        return best
     }
 
     /** The largest text size whose layout fits [area]; at [minSize] it may run over. */
@@ -170,4 +264,10 @@ object PageTypesetter {
     private const val MIN_TEXT_SIZE_FRACTION = 0.018f
     private const val LINE_SPACING = 1.0f
     private const val FIT_STEPS = 12
+    private const val SHAPE_STEPS = 8
+
+    /** Space between the text and the bubble's outline, as a share of the bubble's size. */
+    private const val SHAPE_PADDING = 0.06f
+    private const val LABEL_MARGIN = 0.06f
+    private val LABEL_COLOR = Color.WHITE
 }
