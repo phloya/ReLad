@@ -347,10 +347,10 @@ internal class PagerPanels(private val viewer: PagerViewer) {
         // weakly, and a value pointing back into the holder would keep it alive
         val overlay = holder.children.filterIsInstance<PanelFocusView>().firstOrNull()
             ?: PanelFocusView(holder.context, image).also { holder.addView(it, MATCH_PARENT, MATCH_PARENT) }
+        val focus = stop.focus
         overlay.show(
-            stop.focus?.let {
-                RectF(it.left, it.top, it.right, it.bottom)
-            },
+            focus?.let { RectF(it.left, it.top, it.right, it.bottom) },
+            focus?.shape?.toFloatArray(),
             prefs.dimOthers.get(),
             stop.scale,
             duration,
@@ -408,7 +408,7 @@ internal class PagerPanels(private val viewer: PagerViewer) {
         if (crop == Box.FULL) return this
         fun x(v: Float) = ((v - crop.left) / crop.width).coerceIn(0f, 1f)
         fun y(v: Float) = ((v - crop.top) / crop.height).coerceIn(0f, 1f)
-        return Box(x(left), y(top), x(right), y(bottom))
+        return Box(x(left), y(top), x(right), y(bottom), shape?.mapIndexed { i, v -> if (i % 2 == 0) x(v) else y(v) })
     }
 
     companion object {

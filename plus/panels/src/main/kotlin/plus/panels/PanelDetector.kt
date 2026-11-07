@@ -1,8 +1,10 @@
 package plus.panels
 
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /**
  * Finds the panels of a page with plain image analysis: no model, no network, a few tens of
@@ -19,11 +21,12 @@ import kotlin.math.roundToInt
  * 5. Pieces that mostly overlap are merged.
  * 6. A small piece beside a big panel whose facing edge is no straight border (a corner that
  *    a balloon touching the page edge cut off) is joined back to that panel.
+ * 7. A panel with slanted edges also gets its four corners, so the reader can dim along them.
  */
 object PanelDetector {
 
     /** Bump when the result changes, so pages are not served from an older version's cache. */
-    const val VERSION = 2
+    const val VERSION = 3
 
     /** Gutter pixels are within this of the background level. */
     private const val TOLERANCE = 40
@@ -78,12 +81,142 @@ object PanelDetector {
             .filter { unit.isPanelSized(it) && it.count >= minFill * it.area }
             .flatMap { cut(it, labels, w, unit, depth = 0) }
             .filter { unit.isPanelSized(it) }
-        val panels = absorbFragments(merge(found), gutter, labels, w, h)
+        val joins = Joins(pieces.size + 1)
+        val panels = absorbFragments(merge(found, joins), gutter, labels, w, h, joins)
 
         val covered = panels.sumOf { it.area.toLong() }.toFloat() / (w.toLong() * h)
         if (panels.isEmpty() || covered < 0.15f) return null
         if (!sure && (panels.size < 2 || covered < 0.55f || overlap(panels) > 0.01f * covered * w * h)) return null
-        return panels.map { Box(it.x0.toFloat() / w, it.y0.toFloat() / h, (it.x1 + 1f) / w, (it.y1 + 1f) / h) }
+        val roots = IntArray(pieces.size + 1) { joins.root(it) }
+        return panels.map {
+            Box(
+                it.x0.toFloat() / w,
+                it.y0.toFloat() / h,
+                (it.x1 + 1f) / w,
+                (it.y1 + 1f) / h,
+                shape = shapeOf(it, labels, roots, w, h),
+            )
+        }
+    }
+
+    /** Which labelled pieces ended up in one panel: a joined piece points to the one it joined. */
+    private class Joins(size: Int) {
+        private val parent = IntArray(size) { it }
+
+        fun root(id: Int): Int {
+            var i = id
+            while (parent[i] != i) i = parent[i]
+            return i
+        }
+
+        fun join(id: Int, into: Int) {
+            val a = root(id)
+            val b = root(into)
+            if (a != b) parent[a] = b
+        }
+    }
+
+    /**
+     * The four corners of a panel whose edges are not straight across (a slanted gutter), or
+     * `null` for a plain rectangle. The corners are the panel's farthest pixels towards each
+     * corner of the page; they are only taken when nearly all of the panel lies inside them,
+     * so a balloon sticking out of a frame does not bend the shape.
+     */
+    private fun shapeOf(region: Region, labels: IntArray, roots: IntArray, w: Int, h: Int): List<Float>? {
+        val root = roots[region.id]
+        var minSum = Int.MAX_VALUE
+        var maxSum = Int.MIN_VALUE
+        var minDiff = Int.MAX_VALUE
+        var maxDiff = Int.MIN_VALUE
+        val corners = IntArray(8)
+        var count = 0
+        for (y in region.y0..region.y1) {
+            for (x in region.x0..region.x1) {
+                val label = labels[y * w + x]
+                if (label == 0 || roots[label] != root) continue
+                count++
+                val sum = x + y
+                val diff = x - y
+                if (sum < minSum) {
+                    minSum = sum
+                    corners[0] = x
+                    corners[1] = y
+                }
+                if (diff > maxDiff) {
+                    maxDiff = diff
+                    corners[2] = x + 1
+                    corners[3] = y
+                }
+                if (sum > maxSum) {
+                    maxSum = sum
+                    corners[4] = x + 1
+                    corners[5] = y + 1
+                }
+                if (diff < minDiff) {
+                    minDiff = diff
+                    corners[6] = x
+                    corners[7] = y + 1
+                }
+            }
+        }
+        if (count == 0) return null
+        // Corners at the box's own corners: a rectangle, nothing to add
+        val box = intArrayOf(
+            region.x0,
+            region.y0,
+            region.x1 + 1,
+            region.y0,
+            region.x1 + 1,
+            region.y1 + 1,
+            region.x0,
+            region.y1 + 1,
+        )
+        val near = max(2f, 0.015f * max(w, h))
+        if ((0 until 8).all { abs(corners[it] - box[it]) <= near }) return null
+        // The panel must fill its shape: pixels left outside mean an outline that is not four
+        // straight edges (a balloon, a rounded or cut corner), and then the box is safer
+        val quad = FloatArray(8) { corners[it].toFloat() }
+        if (!isConvex(quad)) return null
+        var outside = 0
+        for (y in region.y0..region.y1) {
+            for (x in region.x0..region.x1) {
+                val label = labels[y * w + x]
+                if (label == 0 || roots[label] != root) continue
+                if (!inside(quad, x + 0.5f, y + 0.5f, tolerance = 2f)) outside++
+            }
+        }
+        if (outside > 0.005f * count) return null
+        return List(8) { if (it % 2 == 0) quad[it] / w else quad[it] / h }
+    }
+
+    /** Corners go clockwise (on screen, y down) and turn the same way at each corner. */
+    private fun isConvex(quad: FloatArray): Boolean {
+        for (i in 0 until 4) {
+            val ax = quad[2 * i]
+            val ay = quad[2 * i + 1]
+            val bx = quad[2 * ((i + 1) % 4)]
+            val by = quad[2 * ((i + 1) % 4) + 1]
+            val cx = quad[2 * ((i + 2) % 4)]
+            val cy = quad[2 * ((i + 2) % 4) + 1]
+            if ((bx - ax) * (cy - by) - (by - ay) * (cx - bx) <= 0f) return false
+        }
+        return true
+    }
+
+    /** Whether a point lies inside the convex [quad], or within [tolerance] px of it. */
+    private fun inside(quad: FloatArray, px: Float, py: Float, tolerance: Float): Boolean {
+        for (i in 0 until 4) {
+            val ax = quad[2 * i]
+            val ay = quad[2 * i + 1]
+            val bx = quad[2 * ((i + 1) % 4)]
+            val by = quad[2 * ((i + 1) % 4) + 1]
+            val length = sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay))
+            if (length == 0f) continue
+            // Signed distance from the edge, positive outside (the edges go clockwise)
+            val distance = ((by - ay) * (px - ax) - (bx - ax) * (py - ay)) / length
+            if (distance > tolerance) return false
+        }
+        return true
     }
 
     /** A rectangle of pixels, both ends included. */
@@ -371,6 +504,7 @@ object PanelDetector {
         labels: IntArray,
         w: Int,
         h: Int,
+        joins: Joins,
     ): List<Region> {
         val list = regions.sortedByDescending { it.area }.toMutableList()
         var changed = true
@@ -387,7 +521,11 @@ object PanelDetector {
                     }
                     // Joining must not cut into a panel of its own
                     if (rest.any { it !in inside && intersection(it, joined) > 0.1f * it.area }) continue
-                    for (piece in inside) joined = joined.copy(count = joined.count + piece.count)
+                    joins.join(small.id, big.id)
+                    for (piece in inside) {
+                        joined = joined.copy(count = joined.count + piece.count)
+                        joins.join(piece.id, big.id)
+                    }
                     list[list.indexOf(big)] = joined
                     list.removeAll { it === small || inside.any { piece -> piece === it } }
                     changed = true
@@ -506,7 +644,7 @@ object PanelDetector {
     }
 
     /** Merges pieces that overlap by at least half of the smaller one (or lie inside another). */
-    private fun merge(regions: List<Region>): List<Region> {
+    private fun merge(regions: List<Region>, joins: Joins): List<Region> {
         val list = regions.toMutableList()
         var merged = true
         while (merged) {
@@ -519,6 +657,7 @@ object PanelDetector {
                     val h = min(a.y1, b.y1) - max(a.y0, b.y0) + 1
                     if (w <= 0 || h <= 0) continue
                     if (w * h >= 0.5f * min(a.area, b.area)) {
+                        joins.join(b.id, a.id)
                         list[i] = Region(
                             a.id,
                             min(a.x0, b.x0),

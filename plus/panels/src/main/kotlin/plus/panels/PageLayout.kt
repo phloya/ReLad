@@ -15,13 +15,18 @@ class GrayImage(val width: Int, val height: Int, val pixels: ByteArray) {
     operator fun get(x: Int, y: Int): Int = pixels[y * width + x].toInt() and 0xFF
 }
 
-/** A rectangle in coordinates relative to the page: 0 is the left or top edge, 1 the right or bottom one. */
+/**
+ * A rectangle in coordinates relative to the page: 0 is the left or top edge, 1 the right or
+ * bottom one. A panel with slanted edges also has its [shape]: four corners (x, y) clockwise from
+ * the top left; `null` when the panel is the rectangle itself.
+ */
 @Serializable
 data class Box(
     @SerialName("l") val left: Float,
     @SerialName("t") val top: Float,
     @SerialName("r") val right: Float,
     @SerialName("b") val bottom: Float,
+    @SerialName("s") val shape: List<Float>? = null,
 ) {
     val width get() = right - left
     val height get() = bottom - top

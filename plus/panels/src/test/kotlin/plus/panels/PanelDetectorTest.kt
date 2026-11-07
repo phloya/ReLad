@@ -2,6 +2,8 @@ package plus.panels
 
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.floats.plusOrMinus
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Test
 
@@ -48,6 +50,8 @@ class PanelDetectorTest {
         val found = PanelDetector.findPanels(mangaPage().image())
         found shouldHaveSize 6
         match(ReadingOrder.sort(found, rightToLeft = true, pageAspect = 0.7f)) shouldBe listOf(0, 1, 2, 3, 4, 5)
+        // Upright panels are their boxes
+        found.forEach { it.shape.shouldBeNull() }
     }
 
     @Test
@@ -96,6 +100,14 @@ class PanelDetectorTest {
         found shouldHaveSize 2
         found[0].top shouldBe (0.03f plusOrMinus 0.01f)
         found[1].bottom shouldBe (0.97f plusOrMinus 0.01f)
+        // The corners follow the slant: the upper panel ends lower on the left than on the right
+        val upper = found[0].shape.shouldNotBeNull()
+        upper[7] shouldBe (0.50f plusOrMinus 0.01f) // bottom left
+        upper[5] shouldBe (0.40f plusOrMinus 0.01f) // bottom right
+        upper[1] shouldBe (0.03f plusOrMinus 0.01f) // top left
+        val lower = found[1].shape.shouldNotBeNull()
+        lower[1] shouldBe (0.52f plusOrMinus 0.01f) // top left
+        lower[3] shouldBe (0.42f plusOrMinus 0.01f) // top right
     }
 
     /**

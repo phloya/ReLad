@@ -6,6 +6,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.RectF
 import android.os.SystemClock
@@ -16,14 +17,16 @@ import kotlin.math.abs
 
 /**
  * Darkens the page around the panel being read, like a spotlight, so the neighbors that fit on
- * the screen do not distract. Follows the image while it zooms and pans, fades away when the
- * reader zooms away from the panel by hand, and never takes touches.
+ * the screen do not distract. A panel with slanted edges is lit along them, not as a box.
+ * Follows the image while it zooms and pans, fades away when the reader zooms away from the
+ * panel by hand, and never takes touches.
  */
 @SuppressLint("ViewConstructor")
 internal class PanelFocusView(context: Context, private val image: SubsamplingScaleImageView) : View(context) {
 
     private val paint = Paint()
     private var focus: RectF? = null
+    private var shape: FloatArray? = null
     private var strength = 0f
     private var animator: ValueAnimator? = null
 
@@ -34,8 +37,11 @@ internal class PanelFocusView(context: Context, private val image: SubsamplingSc
     private val drawn = RectF()
     private var drawnAlpha = 0
     private val mapped = RectF()
+    private val mappedShape = FloatArray(8)
     private val topLeft = PointF()
     private val bottomRight = PointF()
+    private val corner = PointF()
+    private val path = Path()
 
     // The image animates by redrawing itself; redraw too whenever the panel moved on screen
     private val preDraw = ViewTreeObserver.OnPreDrawListener {
@@ -48,13 +54,17 @@ internal class PanelFocusView(context: Context, private val image: SubsamplingSc
     }
 
     /**
-     * Dims around [rect] (image pixels), or stops dimming when it is `null` or [dim] is off.
-     * The image shows the panel at [scale] after [animationMs].
+     * Dims around [rect] (image pixels), or around [corners] (four x, y pairs clockwise from the
+     * top left) when the panel has slanted edges. Stops dimming when [rect] is `null` or [dim] is
+     * off. The image shows the panel at [scale] after [animationMs].
      */
-    fun show(rect: RectF?, dim: Boolean, scale: Float, animationMs: Long) {
+    fun show(rect: RectF?, corners: FloatArray?, dim: Boolean, scale: Float, animationMs: Long) {
         // Starts from what is on screen now, which is less when the reader had zoomed away
         strength *= zoomFactor()
-        if (rect != null) focus = RectF(rect)
+        if (rect != null) {
+            focus = RectF(rect)
+            shape = corners?.copyOf()
+        }
         panelScale = scale
         settlesAt = SystemClock.uptimeMillis() + animationMs
         val target = if (dim && rect != null) 1f else 0f
@@ -93,6 +103,17 @@ internal class PanelFocusView(context: Context, private val image: SubsamplingSc
         paint.color = Color.argb(drawnAlpha, 0, 0, 0)
         val w = width.toFloat()
         val h = height.toFloat()
+        if (shape != null) {
+            // Everything but the panel's outline: the page, with the outline cut out of it
+            path.reset()
+            path.fillType = Path.FillType.EVEN_ODD
+            path.addRect(0f, 0f, w, h, Path.Direction.CW)
+            path.moveTo(mappedShape[0], mappedShape[1])
+            for (i in 1 until 4) path.lineTo(mappedShape[2 * i], mappedShape[2 * i + 1])
+            path.close()
+            canvas.drawPath(path, paint)
+            return
+        }
         canvas.drawRect(0f, 0f, w, mapped.top, paint)
         canvas.drawRect(0f, mapped.bottom, w, h, paint)
         canvas.drawRect(0f, mapped.top, mapped.left, mapped.bottom, paint)
@@ -111,7 +132,7 @@ internal class PanelFocusView(context: Context, private val image: SubsamplingSc
         return ((FADE_END - off) / (FADE_END - FADE_START)).coerceIn(0f, 1f)
     }
 
-    /** Where the focus rectangle is on screen right now. */
+    /** Where the focus rectangle (and outline) is on screen right now. */
     private fun map(): Boolean {
         val rect = focus ?: return false
         if (!image.isReady) return false
@@ -123,6 +144,12 @@ internal class PanelFocusView(context: Context, private val image: SubsamplingSc
             bottomRight.x + image.left,
             bottomRight.y + image.top,
         )
+        val corners = shape ?: return true
+        for (i in 0 until 4) {
+            image.sourceToViewCoord(corners[2 * i], corners[2 * i + 1], corner) ?: return false
+            mappedShape[2 * i] = corner.x + image.left
+            mappedShape[2 * i + 1] = corner.y + image.top
+        }
         return true
     }
 

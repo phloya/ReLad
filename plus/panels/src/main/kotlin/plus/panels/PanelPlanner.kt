@@ -4,8 +4,17 @@ import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
-/** A rectangle in image pixels. */
-data class PixelRect(val left: Float, val top: Float, val right: Float, val bottom: Float) {
+/**
+ * A rectangle in image pixels. [shape] is the panel's own outline when its edges are slanted:
+ * four corners (x, y) clockwise from the top left, in image pixels.
+ */
+data class PixelRect(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+    val shape: List<Float>? = null,
+) {
     val width get() = right - left
     val height get() = bottom - top
     val centerX get() = (left + right) / 2
@@ -59,6 +68,7 @@ object PanelPlanner {
                 max(0f, box.top * imageHeight - pad),
                 min(imageWidth, box.right * imageWidth + pad),
                 min(imageHeight, box.bottom * imageHeight + pad),
+                box.shape?.let { shape(it, imageWidth, imageHeight, pad / 2) },
             )
         }
         for (rect in rects) {
@@ -78,6 +88,25 @@ object PanelPlanner {
         return stops.fold(mutableListOf()) { list, stop ->
             if (list.isEmpty() || !list.last().sameAs(stop)) list += stop
             list
+        }
+    }
+
+    /**
+     * A panel's corners in image pixels, each moved [pad] outward (away from the panel), so the
+     * frame line stays in the light like the box's margin does. Slanted gutters are wider than
+     * that, so the neighbors stay out.
+     */
+    private fun shape(corners: List<Float>, imageWidth: Float, imageHeight: Float, pad: Float): List<Float> {
+        // Top left, top right, bottom right, bottom left: which way is outward for each
+        val outX = floatArrayOf(-1f, 1f, 1f, -1f)
+        val outY = floatArrayOf(-1f, -1f, 1f, 1f)
+        return List(8) { i ->
+            val corner = i / 2
+            if (i % 2 == 0) {
+                (corners[i] * imageWidth + outX[corner] * pad).coerceIn(0f, imageWidth)
+            } else {
+                (corners[i] * imageHeight + outY[corner] * pad).coerceIn(0f, imageHeight)
+            }
         }
     }
 
