@@ -28,4 +28,6 @@
     <string name="plus_retranslate_page">This page</string>
     <string name="plus_retranslate_chapter">Whole chapter</string>
     <string name="plus_retranslate_button">Redo translation</string>
+    <string name="plus_translate_next_chapter">Translate the next chapter ahead</string>
+    <string name="plus_translate_next_chapter_summary">When the open chapter is done, the next one is translated in the background: no wait when you turn to it. Uses tokens on a chapter you may not open</string>
 </resources>

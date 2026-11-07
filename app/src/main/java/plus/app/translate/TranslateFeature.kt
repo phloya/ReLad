@@ -59,6 +59,10 @@ object TranslateFeature : PlusFeature {
     override fun preparesWholeChapter(graph: PlusGraph): Boolean =
         graph.isEnabled(this) && TranslatePreferences(graph).wholeChapter.get()
 
+    /** When the open chapter is done, the next one is translated in the background. */
+    fun translatesNextChapter(graph: PlusGraph): Boolean =
+        preparesWholeChapter(graph) && TranslatePreferences(graph).nextChapter.get()
+
     @Volatile
     private var bibleStore: BibleStore? = null
 
@@ -84,6 +88,7 @@ internal class TranslatePreferences(graph: PlusGraph) {
     val language = prefs.string(TranslateFeature.id, "language", defaultLanguage())
     val soundEffects = prefs.boolean(TranslateFeature.id, "sfx", true)
     val wholeChapter = prefs.boolean(TranslateFeature.id, "whole_chapter", true)
+    val nextChapter = prefs.boolean(TranslateFeature.id, "next_chapter", true)
 
     private fun defaultLanguage(): String {
         val device = Locale.getDefault().language
@@ -102,6 +107,7 @@ class TranslateSettingsScreen : Screen() {
         val providersJson by graph.preferences.aiProvidersJson.collectAsState()
         val providers = remember(providersJson) { graph.preferences.aiProviders() }
         val providerId by prefs.provider.collectAsState()
+        val wholeChapter by prefs.wholeChapter.collectAsState()
 
         val store = remember { TranslateFeature.translations(graph) }
         var saved by remember { mutableStateOf(store.count() to store.sizeBytes()) }
@@ -168,6 +174,12 @@ class TranslateSettingsScreen : Screen() {
                         preference = prefs.wholeChapter,
                         title = stringResource(R.string.plus_translate_whole_chapter),
                         subtitle = stringResource(R.string.plus_translate_whole_chapter_summary),
+                    ),
+                    Preference.PreferenceItem.SwitchPreference(
+                        preference = prefs.nextChapter,
+                        title = stringResource(R.string.plus_translate_next_chapter),
+                        subtitle = stringResource(R.string.plus_translate_next_chapter_summary),
+                        visible = wholeChapter,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = prefs.soundEffects,
