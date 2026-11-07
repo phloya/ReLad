@@ -56,6 +56,10 @@ fun ReaderBottomBar(
             )
         }
 
+        // PLUS --> Re:Lad: panel-by-panel reading switch
+        plus.app.panels.PanelsReaderButton()
+        // PLUS <--
+
         IconButton(onClick = onClickSettings) {
             Icon(
                 imageVector = MaterialSymbols.Rounded.Settings,

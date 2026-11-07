@@ -5,6 +5,7 @@ import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.BuildConfig
 import plus.app.colorize.ColorizeFeature
 import plus.app.enhance.EnhanceFeature
+import plus.app.panels.PanelsFeature
 import plus.app.translate.TranslateFeature
 import plus.core.pipeline.DemoProcessor
 import plus.core.pipeline.PageProcessor
@@ -25,6 +26,12 @@ interface PlusFeature {
     /** Shown only in Re:Lad Dev builds. */
     val devOnly: Boolean get() = false
 
+    /**
+     * `false` for a feature that changes how the reader moves through pages, not the page images
+     * (panel-by-panel reading). It has no page step, and changing its settings reloads no pages.
+     */
+    val processesPages: Boolean get() = true
+
     /** The page step of this feature, or `null` while the feature is not built yet ("coming soon"). */
     fun createProcessor(graph: PlusGraph): PageProcessor?
 
@@ -40,6 +47,7 @@ object PlusFeatures {
         TranslateFeature,
         EnhanceFeature,
         ColorizeFeature,
+        PanelsFeature,
         PipelineCheckFeature,
     )
 }

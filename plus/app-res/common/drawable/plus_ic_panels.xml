@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PLUS: Re:Lad panel-by-panel reading icon (a page of panels, one of them framed by a viewfinder) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Panels: a wide one on top, two below -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M6,5h12v5H6z M6,12h5v7H6z M13,12h5v7h-5z"
+        android:fillAlpha="0.45" />
+    <!-- Viewfinder corners around the lower right panel -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M11,10h4v1.6h-2.4V14H11z M17,10h4v4h-1.6v-2.4H17z M11,17h1.6v2.4H15V21h-4z M19.4,17H21v4h-4v-1.6h2.4z" />
+    <!-- The page -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M4,2h16a1,1 0,0 1,1 1v5.5h-1.6V3.6H4.6v16.8h4.9V22H4a1,1 0,0 1,-1 -1V3a1,1 0,0 1,1 -1z" />
+</vector>

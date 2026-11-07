@@ -159,6 +159,9 @@ class PagerPageHolder(
             val (source, isAnimated, background) = withContext(Dispatchers.Default) {
                 val source = process(item, buffer)
                 val isAnimated = ImageUtil.isAnimatedAndSupported(source)
+                // PLUS --> Re:Lad panel-by-panel reading finds the panels of the image shown
+                if (!isAnimated) plus.app.panels.PlusPanels.onPagerImage(viewer, this@PagerPageHolder, source)
+                // PLUS <--
                 val background = if (!isAnimated && viewer.config.automaticBackground) {
                     ImageUtil.chooseBackground(context, source.peek().inputStream())
                 } else {
@@ -175,7 +178,9 @@ class PagerPageHolder(
                         minimumScaleType = viewer.config.imageScaleType,
                         cropBorders = viewer.config.imageCropBorders,
                         zoomStartPosition = viewer.config.imageZoomType,
-                        landscapeZoom = viewer.config.landscapeZoom,
+                        // PLUS --> Re:Lad: no landscape zoom in panel mode, panels decide the view (was viewer.config.landscapeZoom)
+                        landscapeZoom = plus.app.panels.PlusPanels.landscapeZoom(viewer, viewer.config.landscapeZoom),
+                        // PLUS <--
                     ),
                 )
                 if (!isAnimated) {

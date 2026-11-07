@@ -58,7 +58,9 @@ open class Pager(
      * Dispatches a touch event.
      */
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        val handled = super.dispatchTouchEvent(ev)
+        // PLUS --> Re:Lad panel-by-panel reading turns swipes into moves between panels (was super.dispatchTouchEvent(ev))
+        val handled = plus.app.panels.PlusPanels.dispatchTouch(this, ev) { super.dispatchTouchEvent(it) }
+        // PLUS <--
         if (isGestureDetectorEnabled) {
             gestureDetector.onTouchEvent(ev)
         }

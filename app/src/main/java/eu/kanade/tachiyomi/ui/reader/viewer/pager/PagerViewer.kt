@@ -230,6 +230,9 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
 
         // Notify holder of page change
         getPageHolder(page)?.onPageSelected(forward)
+        // PLUS --> Re:Lad panel-by-panel reading starts the page at its first (or last) panel
+        plus.app.panels.PlusPanels.onPageSelected(this, page, forward)
+        // PLUS <--
 
         // Skip preload on inserts it causes unwanted page jumping
         if (page is InsertPage) {
@@ -331,6 +334,9 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
      * Moves to the page at the right.
      */
     protected open fun moveRight() {
+        // PLUS --> Re:Lad panel-by-panel reading goes to the next panel before the next page
+        if (plus.app.panels.PlusPanels.onPagerMove(this, toRight = true)) return
+        // PLUS <--
         if (pager.currentItem != adapter.count - 1) {
             val holder = (currentPage as? ReaderPage)?.let(::getPageHolder)
             if (holder != null && config.navigateToPan && holder.canPanRight()) {
@@ -345,6 +351,9 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
      * Moves to the page at the left.
      */
     protected open fun moveLeft() {
+        // PLUS --> Re:Lad panel-by-panel reading goes to the previous panel before the previous page
+        if (plus.app.panels.PlusPanels.onPagerMove(this, toRight = false)) return
+        // PLUS <--
         if (pager.currentItem != 0) {
             val holder = (currentPage as? ReaderPage)?.let(::getPageHolder)
             if (holder != null && config.navigateToPan && holder.canPanLeft()) {
