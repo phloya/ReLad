@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PLUS: Re:Lad page translation strings (branch relad/translate) -->
+<resources>
+    <string name="plus_translate_language">Translate into</string>
+    <string name="plus_translate_sfx">Translate sound effects</string>
+    <string name="plus_translate_sfx_summary">Drawn over the original sound effect; the art stays as it is</string>
+    <string name="plus_translate_no_providers">Add an AI provider first</string>
+    <string name="plus_translate_how">Each page is one request to the AI provider: it finds the text and translates it. A vision model is needed (e.g. Gemini Flash, GPT-4o-class, Claude). Translated pages are kept, so re-reading costs nothing.</string>
+</resources>
