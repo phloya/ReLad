@@ -27,8 +27,11 @@ data class TitleBible(
     /** Grows with every change; lets the screen and the prompt cache notice changes cheaply. */
     val revision: Int = 0,
 ) {
-    /** Nothing learned yet: no characters, no terms. */
-    val isNew: Boolean get() = characters.isEmpty() && terms.isEmpty()
+    /**
+     * Nothing learned yet: no characters, no terms, no page done. Until then a chapter's pages wait
+     * for the page before (the first page settles the names); after it they go side by side.
+     */
+    val isNew: Boolean get() = characters.isEmpty() && terms.isEmpty() && chapters.isEmpty()
 }
 
 /** What the title is, from the source's description and the model's first pages. */

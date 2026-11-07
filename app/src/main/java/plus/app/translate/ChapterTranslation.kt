@@ -255,7 +255,7 @@ object ChapterTranslation {
 
     private const val CHANNEL = "relad_translate"
     private const val NOTIFICATION_BASE = 0x7E1A0
-    private const val AT_ONCE = 4
+    private const val AT_ONCE = 6
     private const val POLL_MS = 1_000L
     private const val MAX_WAIT_MS = 180_000L
 }

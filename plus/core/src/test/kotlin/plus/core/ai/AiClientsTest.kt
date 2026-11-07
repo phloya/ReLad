@@ -269,6 +269,51 @@ class AiClientsTest {
     }
 
     @Test
+    fun `OpenRouter is asked for low reasoning, other OpenAI-format servers are not`() = runTest {
+        val low = AiRequest(system = null, prompt = "p", effort = AiEffort.Low)
+        val answer = """{"choices":[{"message":{"content":"ok"}}]}"""
+
+        val openRouter = FakeServer(body = answer)
+        AiClients.create(config(AiProviderType.OpenAiCompatible), "k", openRouter.client).send(low)
+        openRouter.json["reasoning"]!!.jsonObject["effort"]!!.jsonPrimitive.content shouldBe "low"
+
+        val local = FakeServer(body = answer)
+        AiClients.create(
+            config(AiProviderType.OpenAiCompatible, "http://10.0.2.2:8765/v1"),
+            "k",
+            local.client,
+        ).send(low)
+        local.json.containsKey("reasoning") shouldBe false
+    }
+
+    @Test
+    fun `too many requests are asked again after a wait`() = runTest {
+        var calls = 0
+        val client = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                calls++
+                val busy = calls <= 2
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(if (busy) 429 else 200)
+                    .message("fake")
+                    .apply { if (busy) header("Retry-After", "1") }
+                    .body(
+                        (if (busy) """{"error":{"message":"slow down"}}""" else ANSWER_OK)
+                            .toResponseBody("application/json".toMediaType()),
+                    )
+                    .build()
+            }
+            .build()
+
+        val answer = AiClients.create(config(AiProviderType.OpenAiCompatible), "k", client).send(request)
+
+        answer.text shouldBe "ok"
+        calls shouldBe 3
+    }
+
+    @Test
     fun `token usage is read from all three formats`() = runTest {
         val anthropic = FakeServer(
             body = """{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn",
@@ -331,5 +376,9 @@ class AiClientsTest {
         AiJson.extract("Sure!\n```json\n{\"a\":[1,2]}\n```") shouldBe """{"a":[1,2]}"""
         AiJson.extract("[1, 2]") shouldBe "[1, 2]"
         AiJson.extract("no json here") shouldBe null
+    }
+
+    private companion object {
+        const val ANSWER_OK = """{"choices":[{"message":{"content":"ok"}}]}"""
     }
 }

@@ -24,6 +24,8 @@ import okhttp3.Request
  *
  * Deliberately sends no `temperature`, `max_tokens` or `response_format`: newer OpenAI models reject
  * some of them and many OpenRouter models ignore or reject the rest. Prompts ask for JSON instead.
+ * The wanted reasoning effort goes only to OpenRouter, whose one `reasoning` setting every model
+ * that thinks takes (and the others ignore); other servers may reject the field.
  */
 class OpenAiCompatibleClient(
     config: AiProviderConfig,
@@ -59,6 +61,9 @@ class OpenAiCompatibleClient(
                     }
                 }
             }
+            if (request.effort != null && isOpenRouter()) {
+                putJsonObject("reasoning") { put("effort", request.effort.wire) }
+            }
             if (request.imageOutput) {
                 putJsonArray("modalities") {
                     add("image")
@@ -75,6 +80,8 @@ class OpenAiCompatibleClient(
             .post(jsonBody(body))
             .build()
     }
+
+    private fun isOpenRouter(): Boolean = config.baseUrl.contains("openrouter.ai")
 
     override fun parseResponse(body: JsonObject): AiResponse {
         val choice = (body["choices"] as? JsonArray)?.firstOrNull()?.jsonObject

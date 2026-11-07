@@ -43,7 +43,7 @@ class PageTranslator(
     override val order = 300
 
     /** Mostly waiting for the model's server: several pages at once, so a chapter is ready sooner. */
-    override val concurrency = 4
+    override val concurrency = 6
 
     private val json = Json
     private val lettering by lazy { fonts() }
