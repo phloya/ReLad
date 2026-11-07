@@ -202,5 +202,5 @@ object PlusReader {
     private const val TOAST_INTERVAL_MS = 10_000L
 
     /** Pages of a chapter made ready at once: as many as the translation step takes at a time. */
-    private const val AHEAD = 4
+    private const val AHEAD = 6
 }

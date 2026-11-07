@@ -1,6 +1,7 @@
 package plus.core.ai
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -35,11 +36,22 @@ abstract class HttpAiClient(
         val key = apiKey?.takeIf { it.isNotBlank() }
             ?: throw AiException("No API key for ${config.name}", AiException.Kind.NoKey)
         val httpRequest = buildRequest(request, key)
-        val (code, text) = try {
-            client.newCall(httpRequest).await().use { it.code to it.body.string() }
-        } catch (e: IOException) {
-            throw AiException("${config.name}: ${e.message}", AiException.Kind.Network, e)
+        var attempt = 0
+        var answer: Answer
+        while (true) {
+            answer = try {
+                client.newCall(httpRequest).await().use { Answer(it.code, it.body.string(), it.header("Retry-After")) }
+            } catch (e: IOException) {
+                throw AiException("${config.name}: ${e.message}", AiException.Kind.Network, e)
+            }
+            // Too many requests or the provider overloaded (several pages at once): wait and ask again
+            val busy = answer.code == TOO_MANY_REQUESTS || answer.code in RETRY_SERVER_ERRORS
+            if (!busy || attempt >= MAX_RETRIES) break
+            attempt++
+            val asked = answer.retryAfter?.trim()?.toLongOrNull()?.times(1000)
+            delay((asked ?: (RETRY_BASE_MS shl (attempt - 1))).coerceAtMost(MAX_RETRY_WAIT_MS))
         }
+        val (code, text) = answer.code to answer.text
         if (code !in 200..299) {
             throw AiException(
                 "${config.name}: HTTP $code ${errorMessage(text)}",
@@ -69,7 +81,17 @@ abstract class HttpAiClient(
         return message?.toString()?.trim('"')?.take(300) ?: text.take(300)
     }
 
+    private class Answer(val code: Int, val text: String, val retryAfter: String?)
+
     companion object {
+        private const val TOO_MANY_REQUESTS = 429
+
+        /** Overloaded or briefly down (Anthropic's 529 included): worth asking again. */
+        private val RETRY_SERVER_ERRORS = setOf(500, 502, 503, 504, 529)
+        private const val MAX_RETRIES = 3
+        private const val RETRY_BASE_MS = 2_000L
+        private const val MAX_RETRY_WAIT_MS = 30_000L
+
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
         fun base64(bytes: ByteArray): String = Base64.getEncoder().encodeToString(bytes)
