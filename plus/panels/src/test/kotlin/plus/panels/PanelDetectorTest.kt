@@ -144,6 +144,41 @@ class PanelDetectorTest {
     }
 
     @Test
+    fun `a band of white art across a tall panel does not cut it`() {
+        // A tall panel crossed by a big sound effect: a band of white with ragged edges that
+        // breaks through the panel's borders into the gutters on both sides, like a gutter would.
+        // One stroke of lettering holds the two halves of the panel together
+        val page = TestPage(w, h)
+        page.panel(30, 30, 330, 970)
+        page.fill(350, 30, 670, 970, 0)
+        page.fill(354, 34, 666, 966, 150)
+        val random = kotlin.random.Random(11)
+        repeat(150) {
+            val x = random.nextInt(356, 664)
+            val y = random.nextInt(36, 964)
+            page.line(
+                x,
+                y,
+                (x + random.nextInt(-50, 50)).coerceIn(356, 664),
+                (y + random.nextInt(-50, 50)).coerceIn(36, 964),
+                3,
+                0,
+            )
+        }
+        for (x in 340 until 680) {
+            val top = 470 + (18 * kotlin.math.sin(x / 9.0)).toInt()
+            val bottom = 540 + (18 * kotlin.math.sin(x / 7.0 + 1)).toInt()
+            for (y in top until bottom) page.set(x, y, 255)
+        }
+        page.line(500, 440, 520, 575, 8, 0)
+        page.noise(6)
+        val found = ReadingOrder.sort(PanelDetector.findPanels(page.image()), rightToLeft = true, pageAspect = 0.7f)
+        found shouldHaveSize 2
+        found[0].top shouldBe (0.03f plusOrMinus 0.01f)
+        found[0].bottom shouldBe (0.97f plusOrMinus 0.01f)
+    }
+
+    @Test
     fun `a page drawn to the edges is one panel`() {
         // Art to the edges: short strokes and texture everywhere, no band of paper across the page
         val page = TestPage(w, h, background = 120)
