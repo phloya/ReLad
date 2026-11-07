@@ -26,7 +26,7 @@ import kotlin.math.sqrt
 object PanelDetector {
 
     /** Bump when the result changes, so pages are not served from an older version's cache. */
-    const val VERSION = 7
+    const val VERSION = 8
 
     /** Gutter pixels are within this of the background level. */
     private const val TOLERANCE = 40
@@ -61,6 +61,20 @@ object PanelDetector {
     private const val RIGHT = 4
     private const val BOTTOM = 8
 
+    /** Insets are looked for in panels at least this share of the page. */
+    private const val INSET_PANEL = 0.15f
+
+    /** An inset is at least this share of its panel's width and height, and at most [INSET_MAX] of its area. */
+    private const val INSET_SIDE = 0.15f
+    private const val INSET_MAX = 0.5f
+
+    /** Share of an inset's side that its frame lines must cover, and the longest break in them. */
+    private const val INSET_COVERED = 0.6f
+    private const val INSET_BREAK = 0.35f
+
+    /** Share of an inset in gray tones: art, unlike a caption box (white, black lettering). */
+    private const val INSET_TONE = 0.35f
+
     /** Share of a side that must lie on one line for it to count as a frame line. */
     private const val FRAMED_SIDE = 0.8f
 
@@ -77,18 +91,203 @@ object PanelDetector {
     fun findPanels(image: GrayImage): List<Box> {
         val guess = backgrounds(image)
         for (background in guess.candidates) {
-            // White art at the page edge is first kept in its panel (only on white paper: on
-            // black, dark art at the edge is mostly the page itself, as on title pages). If that
-            // leaves panels overlapping more than without it, the art was a gutter after all
-            val withLeaks = if (background.light) findWith(image, background, guess.sure, keepLeaks = true) else null
-            if (withLeaks != null && withLeaks.overlapShare() <= 0.01f) return withLeaks
-            val plain = findWith(image, background, guess.sure, keepLeaks = false)
-            if (withLeaks != null && plain != null && withLeaks.overlapShare() <= plain.overlapShare() + 0.01f) {
-                return withLeaks
-            }
-            return plain ?: continue
+            val found = findOn(image, background, guess.sure) ?: continue
+            return if (background.light) withInsets(found, image) else found
         }
-        return listOf(Box.FULL)
+        return withInsets(listOf(Box.FULL), image)
+    }
+
+    private fun findOn(image: GrayImage, background: Background, sure: Boolean): List<Box>? {
+        // White art at the page edge is first kept in its panel (only on white paper: on
+        // black, dark art at the edge is mostly the page itself, as on title pages). If that
+        // leaves panels overlapping more than without it, the art was a gutter after all
+        val withLeaks = if (background.light) findWith(image, background, sure, keepLeaks = true) else null
+        if (withLeaks != null && withLeaks.overlapShare() <= 0.01f) return withLeaks
+        val plain = findWith(image, background, sure, keepLeaks = false)
+        if (withLeaks != null && plain != null && withLeaks.overlapShare() <= plain.overlapShare() + 0.01f) {
+            return withLeaks
+        }
+        return plain
+    }
+
+    /** A straight dark line: along [pos] (a row or a column), from [from] to [to]. */
+    private class Segment(val pos: Int, val from: Int, val to: Int)
+
+    /**
+     * [panels] and the insets drawn over them: small panels with a frame of their own that lie
+     * on a big panel against its border, with no gutter around them (common in Berserk). The big
+     * panel stays as it is (its art goes on behind the inset); the inset is read as a panel too.
+     */
+    private fun withInsets(panels: List<Box>, image: GrayImage): List<Box> {
+        val w = image.width
+        val h = image.height
+        val insets = mutableListOf<Box>()
+        for (panel in panels) {
+            if (panel.shape != null || panel.area < INSET_PANEL) continue
+            val x0 = (panel.left * w).roundToInt()
+            val y0 = (panel.top * h).roundToInt()
+            val x1 = (panel.right * w).roundToInt() - 1
+            val y1 = (panel.bottom * h).roundToInt() - 1
+            for (inset in findInsets(image, x0, y0, x1, y1)) {
+                val box = Box(inset[0].toFloat() / w, inset[1].toFloat() / h, (inset[2] + 1f) / w, (inset[3] + 1f) / h)
+                // One inset found from several lines; and none over another panel
+                if (insets.any { overlapOf(it, box) > 0.5f * min(it.area, box.area) }) continue
+                if (panels.any { it !== panel && overlapOf(it, box) > 0.1f * box.area }) continue
+                insets += box
+            }
+        }
+        return panels + insets
+    }
+
+    private fun overlapOf(a: Box, b: Box): Float =
+        max(0f, min(a.right, b.right) - max(a.left, b.left)) * max(0f, min(a.bottom, b.bottom) - max(a.top, b.top))
+
+    /**
+     * Insets in the panel x0..x1, y0..y1 (pixels): rectangles against the panel's border whose
+     * other sides are thin, solid, straight dark lines. Each as x0, y0, x1, y1.
+     */
+    private fun findInsets(image: GrayImage, x0: Int, y0: Int, x1: Int, y1: Int): List<IntArray> {
+        val pw = x1 - x0 + 1
+        val ph = y1 - y0 + 1
+        val tolerance = max(4, (0.006f * max(image.width, image.height)).roundToInt())
+        val rows = lines(image, x0, y0, x1, y1, horizontal = true, minLength = (INSET_SIDE * pw).roundToInt())
+        val columns = lines(image, x0, y0, x1, y1, horizontal = false, minLength = (INSET_SIDE * ph).roundToInt())
+
+        // How much of from..to the lines near pos cover (a balloon over a frame breaks it)
+        fun covered(pos: Int, from: Int, to: Int, lines: List<Segment>): Float {
+            val on = BooleanArray(to - from + 1)
+            for (line in lines) {
+                if (abs(line.pos - pos) > tolerance) continue
+                for (i in max(from, line.from)..min(to, line.to)) on[i - from] = true
+            }
+            return on.count { it }.toFloat() / on.size
+        }
+
+        // A side of the inset: the panel's border there, or lines along most of it
+        fun closed(pos: Int, from: Int, to: Int, border: Int, lines: List<Segment>): Boolean =
+            abs(pos - border) <= tolerance || covered(pos, from, to, lines) >= INSET_COVERED
+
+        val found = mutableListOf<IntArray>()
+        // Pieces of one line (broken by a balloon) make one side
+        val sides = mutableListOf<Segment>()
+        for (column in columns.sortedBy { it.from }) {
+            val i = sides.indexOfFirst {
+                abs(it.pos - column.pos) <= tolerance &&
+                    column.from - it.to <= INSET_BREAK * ph
+            }
+            if (i >= 0) {
+                val side = sides[i]
+                sides[i] = Segment(side.pos, side.from, max(side.to, column.to))
+            } else {
+                sides += column
+            }
+        }
+        for (side in sides) {
+            if (covered(side.pos, side.from, side.to, columns) < INSET_COVERED) continue
+            // Not the panel's own border
+            if (side.pos - x0 < 2 * tolerance || x1 - side.pos < 2 * tolerance) continue
+            for (toLeft in listOf(true, false)) {
+                val left = if (toLeft) x0 else side.pos
+                val right = if (toLeft) side.pos else x1
+                val top = side.from
+                val bottom = side.to
+                val topOpen = abs(top - y0) <= tolerance
+                val bottomOpen = abs(bottom - y1) <= tolerance
+                // An inset, not a column of the panel cut off by one line from top to bottom
+                if (topOpen && bottomOpen) continue
+                if (!closed(top, left, right, y0, rows) || !closed(bottom, left, right, y1, rows)) continue
+                val iw = right - left + 1
+                val ih = bottom - top + 1
+                if (iw < INSET_SIDE * pw || ih < INSET_SIDE * ph) continue
+                if (iw.toLong() * ih > INSET_MAX * pw.toLong() * ph) continue
+                // Art inside (gray tones), not a caption box (white with black lettering)
+                if (toneShare(image, left, top, right, bottom) < INSET_TONE) continue
+                found += intArrayOf(left, top, right, bottom)
+            }
+        }
+        return found
+    }
+
+    /** Share of pixels in the rectangle that are gray: neither paper white nor ink black. */
+    private fun toneShare(image: GrayImage, x0: Int, y0: Int, x1: Int, y1: Int): Float {
+        var n = 0
+        var total = 0
+        for (y in y0..y1 step 2) {
+            for (x in x0..x1 step 2) {
+                total++
+                if (image[x, y] in 60 until 200) n++
+            }
+        }
+        return if (total == 0) 0f else n.toFloat() / total
+    }
+
+    /**
+     * Thin straight dark lines in the rectangle: rows (if [horizontal]) or columns where a run at
+     * least [minLength] long is dark nearly all along (a pixel off either way allowed: scans are
+     * a little tilted) and lighter on both sides, unlike the edge of a dark area. Lines a few
+     * pixels thick are found once.
+     */
+    private fun lines(
+        image: GrayImage,
+        x0: Int,
+        y0: Int,
+        x1: Int,
+        y1: Int,
+        horizontal: Boolean,
+        minLength: Int,
+    ): List<Segment> {
+        val first = if (horizontal) y0 else x0
+        val last = if (horizontal) y1 else x1
+        val start = if (horizontal) x0 else y0
+        val end = if (horizontal) x1 else y1
+        fun dark(line: Int, i: Int): Boolean {
+            if (line < first || line > last) return false
+            val value = if (horizontal) image[i, line] else image[line, i]
+            return value < LINE_DARK
+        }
+        val found = mutableListOf<Segment>()
+        val off = 4
+        var line = first + 1
+        while (line < last) {
+            var i = start
+            var added = false
+            while (i <= end) {
+                if (!(dark(line - 1, i) || dark(line, i) || dark(line + 1, i))) {
+                    i++
+                    continue
+                }
+                val from = i
+                var to = i
+                var gap = 0
+                while (i <= end) {
+                    if (dark(line - 1, i) || dark(line, i) || dark(line + 1, i)) {
+                        to = i
+                        gap = 0
+                    } else if (++gap > 2) {
+                        break
+                    }
+                    i++
+                }
+                if (to - from + 1 < minLength) continue
+                var solid = 0
+                var before = 0
+                var after = 0
+                for (k in from..to) {
+                    if (dark(line, k)) solid++
+                    if (dark(line - off, k)) before++
+                    if (dark(line + off, k)) after++
+                }
+                val length = to - from + 1
+                if (solid < LINE_PRESENT * length) continue
+                // A frame line is darker than both sides; the edge of a dark area is not
+                if (max(before, after) >= 0.5f * length) continue
+                found += Segment(line, from, to)
+                added = true
+            }
+            // Skip the rest of a thick line
+            line += if (added) 3 else 1
+        }
+        return found
     }
 
     /**

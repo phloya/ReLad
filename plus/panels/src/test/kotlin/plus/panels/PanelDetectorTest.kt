@@ -198,6 +198,42 @@ class PanelDetectorTest {
     }
 
     @Test
+    fun `an inset drawn over a big panel is a panel of its own`() {
+        // A small framed panel on a big one, against its right border, with no gutter around it
+        // (Berserk does this). A balloon lies over its left frame line
+        val page = TestPage(w, h)
+        page.fill(30, 30, 670, 970, 0)
+        page.fill(34, 34, 666, 966, 150)
+        page.fill(452, 152, 666, 548, 115)
+        page.line(450, 150, 450, 550, 3, 0)
+        page.line(450, 150, 666, 150, 3, 0)
+        page.line(450, 550, 666, 550, 3, 0)
+        page.balloon(450, 350, 40, 30)
+        page.noise(6)
+        val found = PanelDetector.findPanels(page.image())
+        found shouldHaveSize 2
+        val inset = found.minBy { it.area }
+        inset.left shouldBe (0.643f plusOrMinus 0.01f)
+        inset.top shouldBe (0.15f plusOrMinus 0.01f)
+        inset.right shouldBe (0.957f plusOrMinus 0.01f)
+        inset.bottom shouldBe (0.55f plusOrMinus 0.01f)
+    }
+
+    @Test
+    fun `a caption box against a panel's border is not an inset`() {
+        val page = TestPage(w, h)
+        page.fill(30, 30, 670, 970, 0)
+        page.fill(34, 34, 666, 966, 150)
+        page.fill(452, 152, 666, 548, 255)
+        page.line(450, 150, 450, 550, 3, 0)
+        page.line(450, 150, 666, 150, 3, 0)
+        page.line(450, 550, 666, 550, 3, 0)
+        for (y in 200 until 500 step 40) page.line(480, y, 630, y, 6, 0)
+        page.noise(6)
+        PanelDetector.findPanels(page.image()) shouldHaveSize 1
+    }
+
+    @Test
     fun `panels that share a frame line without a gutter are told apart`() {
         // One frame around two panels, split only by a black line (Berserk often does this)
         val page = TestPage(w, h)
