@@ -84,10 +84,10 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
                 ),
                 images = listOf(image.image),
                 jsonOutput = true,
-                // A page is careful writing, not a puzzle. Hidden reasoning was two thirds of what the
-                // model wrote and so of the wait (DeepSeek: 3,600 tokens a page at "low"); without it
-                // the answer starts at once
-                effort = AiEffort.None,
+                // Some reasoning, not none: without it the answer comes 2–3 times sooner, but the
+                // boxes go astray (Haiku on Berserk: median overlap with the right place 0.59 against
+                // 0.84 between two runs with it), and text is then left unerased and set off its place
+                effort = AiEffort.Low,
             ),
         )
         response.usage?.let(usage::add)
@@ -115,6 +115,7 @@ internal class PageTextTranslator(private val bibles: BibleStore) {
                         prompt = TranslationPrompt.fixes(regions, problems),
                         jsonOutput = true,
                         maxOutputTokens = FIX_MAX_TOKENS,
+                        // Text only, no boxes: no reasoning needed
                         effort = AiEffort.None,
                     ),
                 )
