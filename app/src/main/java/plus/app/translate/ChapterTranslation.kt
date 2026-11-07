@@ -54,7 +54,8 @@ object ChapterTranslation {
         return graph.isEnabled(TranslateFeature)
     }
 
-    fun start(context: Context, manga: Manga, chapters: List<Chapter>) {
+    /** [fresh]: translate again (Translate again in the reader), not only the pages not done yet. */
+    fun start(context: Context, manga: Manga, chapters: List<Chapter>, fresh: Boolean = false) {
         val app = context.applicationContext
         val graph = Plus.graph(app)
         val todo = chapters
@@ -72,7 +73,7 @@ object ChapterTranslation {
             var error: Throwable? = null
             try {
                 for ((i, chapter) in todo.withIndex()) {
-                    val failure = translate(app, graph, manga, chapter) { done, total ->
+                    val failure = translate(app, graph, manga, chapter, fresh) { done, total ->
                         notifier.progress(chapter.name, i + 1, todo.size, done, total)
                     }
                     if (failure == null) translated++ else error = failure
@@ -100,6 +101,7 @@ object ChapterTranslation {
         graph: PlusGraph,
         manga: Manga,
         chapter: Chapter,
+        fresh: Boolean,
         progress: (done: Int, total: Int) -> Unit,
     ): Throwable? {
         val app = context.appGraph
@@ -129,7 +131,7 @@ object ChapterTranslation {
                     gate.acquire()
                     launch {
                         try {
-                            when (val state = translatePage(graph, manga, chapter, source.lang, page)) {
+                            when (val state = translatePage(graph, manga, chapter, source.lang, page, fresh)) {
                                 PageState.Done -> progress(done.incrementAndGet(), pages.size)
                                 is PageState.Failed -> error = state.error
                                 PageState.Waiting -> Unit
@@ -157,6 +159,7 @@ object ChapterTranslation {
         chapter: Chapter,
         sourceLanguage: String,
         page: ReaderPage,
+        fresh: Boolean,
     ): PageState {
         // Online pages: the loader downloads them in order; a page that failed to download is skipped
         val status = page.statusFlow.first { it == Page.State.Ready || it is Page.State.Error }
@@ -176,6 +179,7 @@ object ChapterTranslation {
             mangaGenres = manga.genre.orEmpty(),
         )
         val hash = PageProcessingEngine.sha256(bytes)
+        if (fresh) graph.engine.redo(bytes, context, TranslateFeature.id)
         graph.engine.prepare(bytes, context)
         // Being translated already (the reader has it open): wait for it to finish
         var state = graph.engine.state(hash, context)

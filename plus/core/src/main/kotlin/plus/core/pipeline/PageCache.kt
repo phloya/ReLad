@@ -41,6 +41,11 @@ class PageCache(
         trim()
     }
 
+    fun remove(key: String) = synchronized(lock) {
+        imageFile(key).delete()
+        metadataFile(key).delete()
+    }
+
     fun clear() = synchronized(lock) {
         dir.listFiles()?.forEach { it.delete() }
     }

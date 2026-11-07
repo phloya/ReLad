@@ -12,6 +12,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +31,8 @@ import mihon.app.di.appGraph
 import okio.Buffer
 import plus.app.Plus
 import plus.app.PlusGraph
+import plus.app.translate.ChapterTranslation
+import plus.app.translate.TranslateFeature
 import plus.core.pipeline.PageContext
 import plus.core.pipeline.PageProcessingEngine
 import tachiyomi.core.common.util.system.ImageUtil
@@ -82,6 +85,25 @@ object PlusReader {
 
     fun toggleOriginal() = _showOriginal.update { !it }
 
+    /** Pages to show again at once (translated again: the original until the new version is ready). */
+    private val reloads = MutableSharedFlow<ReaderPage>(extraBufferCapacity = RELOADS_BUFFER)
+
+    /** Translate this page again: its kept translation goes and the model is asked anew. */
+    fun retranslatePage(activity: ReaderActivity, page: ReaderPage) {
+        activity.lifecycleScope.launch(Dispatchers.IO) {
+            val bytes = page.stream?.invoke()?.use { it.readBytes() } ?: return@launch
+            val context = pageContext(activity, page) ?: return@launch
+            Plus.graph(activity).engine.redo(bytes, context, TranslateFeature.id)
+            reloads.emit(page)
+        }
+    }
+
+    /** Translate the page's whole chapter again, in the background as Translate in the chapter list does. */
+    fun retranslateChapter(activity: ReaderActivity, page: ReaderPage) {
+        val manga = activity.viewModel.manga ?: return
+        ChapterTranslation.start(activity, manga, listOf(page.chapter.chapter), fresh = true)
+    }
+
     fun stream(activity: ReaderActivity, page: ReaderPage): (() -> InputStream)? {
         val original = page.stream ?: return null
         val graph = Plus.graph(activity)
@@ -117,6 +139,10 @@ object PlusReader {
         launch {
             // Original or translation switched in the reader
             showOriginal.drop(1).collect { send(page.status) }
+        }
+        launch {
+            // Translated again: show the page as it is now (the original until the new one is ready)
+            reloads.filter { it === page }.collect { send(page.status) }
         }
         launch {
             engine.failures
@@ -218,6 +244,7 @@ object PlusReader {
     }
 
     private const val TOAST_INTERVAL_MS = 10_000L
+    private const val RELOADS_BUFFER = 8
 
     /** Pages of a chapter made ready at once: as many as the translation step takes at a time. */
     private const val AHEAD = 6

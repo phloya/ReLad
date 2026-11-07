@@ -23,4 +23,9 @@
     <string name="plus_translate_continue_hint">To go on, select the chapters and press Translate again: pages already done are kept.</string>
     <string name="plus_reader_show_original">Show the original</string>
     <string name="plus_reader_show_translation">Show the translation</string>
+    <string name="plus_retranslate">Translate again</string>
+    <string name="plus_retranslate_message">The model translates it anew, and that uses tokens again. The saved translation is replaced.</string>
+    <string name="plus_retranslate_page">This page</string>
+    <string name="plus_retranslate_chapter">Whole chapter</string>
+    <string name="plus_retranslate_button">Redo translation</string>
 </resources>

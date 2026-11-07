@@ -30,6 +30,16 @@ class TranslationStoreTest {
     }
 
     @Test
+    fun `one page's translation can be forgotten`() {
+        val store = TranslationStore(dir)
+        store.put("a", "{}")
+        store.put("b", "{}")
+        store.remove("a")
+        store.get("a").shouldBeNull()
+        store.get("b") shouldBe "{}"
+    }
+
+    @Test
     fun `deleting forgets every translation`() {
         val store = TranslationStore(dir)
         store.put("a", "{}")

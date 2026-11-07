@@ -22,4 +22,9 @@
     <string name="plus_translate_continue_hint">Чтобы продолжить, выделите главы и снова нажмите «Перевести»: готовые страницы сохранятся.</string>
     <string name="plus_reader_show_original">Показать оригинал</string>
     <string name="plus_reader_show_translation">Показать перевод</string>
+    <string name="plus_retranslate">Перевести заново</string>
+    <string name="plus_retranslate_message">Модель переведёт заново, на это снова уйдут токены. Сохранённый перевод заменится.</string>
+    <string name="plus_retranslate_page">Эту страницу</string>
+    <string name="plus_retranslate_chapter">Всю главу</string>
+    <string name="plus_retranslate_button">Перевод заново</string>
 </resources>
