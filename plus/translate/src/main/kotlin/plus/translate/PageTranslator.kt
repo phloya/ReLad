@@ -6,7 +6,6 @@ import android.graphics.Rect
 import android.os.Build
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import plus.core.ai.AiClient
 import plus.core.ai.AiException
@@ -31,6 +30,8 @@ class PageTranslator(
     bibles: BibleStore,
     /** The lettering font, loaded on first use. */
     private val fonts: () -> LetteringFonts = { LetteringFonts.SYSTEM },
+    /** Translations kept for good: a page translated once is only drawn again. `null`: none kept. */
+    private val translations: TranslationStore? = null,
 ) : PageProcessor {
 
     private val text = PageTextTranslator(bibles)
@@ -72,18 +73,14 @@ class PageTranslator(
         if (sameLanguage(context.sourceLanguage, s.language.code)) return ProcessedPage(input)
         val provider = s.provider ?: throw NotConfiguredException()
         val size = PageBitmaps.size(input) ?: error("Not an image")
-        val result = text.translate(
-            client = clientFor(provider),
-            images = modelImages(input, size),
-            width = size.width,
-            height = size.height,
-            context = context,
-            language = s.language,
-            translateSoundEffects = s.translateSoundEffects,
-            // Claude 4.7+ answers in pixels of the image (and errs when asked for 0–1000); Gemini in 0–1000
-            units = if (provider.type == AiProviderType.Anthropic) BoxUnits.Pixels else BoxUnits.PerMille,
-        )
-        val regions = result.regions
+        // Translated before (the image was dropped from the cache, or the lettering changed): only draw
+        val keptKey = translations?.let { TranslationStore.key(input, textSignature(s, provider)) }
+        val kept = keptKey?.let { translations?.get(it) }
+            ?.let { runCatching { json.decodeFromString(TranslatedPage.serializer(), it) }.getOrNull() }
+        val page = kept ?: translate(input, size, context, s, provider).also { translated ->
+            keptKey?.let { translations?.put(it, json.encodeToString(TranslatedPage.serializer(), translated)) }
+        }
+        val regions = page.regions
 
         // A few pages at a time: a long strip at full size takes tens of megabytes while it is drawn
         val image = rendering.withPermit {
@@ -99,19 +96,44 @@ class PageTranslator(
             PageBitmaps.encode(bitmap, Bitmap.CompressFormat.JPEG, quality = 95).also { bitmap.recycle() }
         }
 
-        return ProcessedPage(
-            image = image,
-            metadata = json.encodeToString(
-                TranslatedPage(
-                    language = s.language.code,
-                    regions = regions,
-                    model = provider.model,
-                    usage = result.usage,
-                    fixedLines = result.fixedLines,
-                ),
-            ),
+        return ProcessedPage(image = image, metadata = json.encodeToString(TranslatedPage.serializer(), page))
+    }
+
+    private suspend fun translate(
+        input: ByteArray,
+        size: PageBitmaps.Size,
+        context: PageContext,
+        s: Settings,
+        provider: AiProviderConfig,
+    ): TranslatedPage {
+        val result = text.translate(
+            client = clientFor(provider),
+            images = modelImages(input, size),
+            width = size.width,
+            height = size.height,
+            context = context,
+            language = s.language,
+            translateSoundEffects = s.translateSoundEffects,
+            // Claude 4.7+ answers in pixels of the image (and errs when asked for 0–1000); Gemini in 0–1000
+            units = if (provider.type == AiProviderType.Anthropic) BoxUnits.Pixels else BoxUnits.PerMille,
+        )
+        return TranslatedPage(
+            language = s.language.code,
+            regions = result.regions,
+            model = provider.model,
+            usage = result.usage,
+            fixedLines = result.fixedLines,
         )
     }
+
+    /** What changes a page's text (not how it is drawn): a kept translation is used while these stay. */
+    private fun textSignature(s: Settings, provider: AiProviderConfig): String = listOf(
+        "v${TranslationPrompt.VERSION}",
+        provider.id,
+        provider.model,
+        s.language.code,
+        "sfx=${s.translateSoundEffects}",
+    ).joinToString("|")
 
     /** Same language; Chinese only when the script matches too (Simplified and Traditional differ). */
     private fun sameLanguage(source: String?, target: String): Boolean {

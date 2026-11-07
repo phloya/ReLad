@@ -262,6 +262,22 @@ class PageProcessingEngineTest {
         engine.resolve(original, context).pending shouldBe true
     }
 
+    @Test
+    fun `asking again after a stop tries the failed pages at once`() = runTest {
+        val tag = TagProcessor("a", 1).apply { fail = true }
+        val engine = engine(tag)
+        engine.prepare(original, context)
+        // A moment later the page is not tried again by itself...
+        engine.prepare(original, context)
+        tag.calls shouldBe 1
+        // ...but it is when the reader asks again (Translate pressed again, Retry)
+        tag.fail = false
+        engine.retryFailed()
+        engine.prepare(original, context)
+        tag.calls shouldBe 2
+        engine.state(PageProcessingEngine.sha256(original), context) shouldBe PageProcessingEngine.PageState.Done
+    }
+
     private val workScopes = mutableListOf<CoroutineScope>()
 
     /**

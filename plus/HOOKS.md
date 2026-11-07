@@ -78,6 +78,7 @@ Workflow Mihon `build.yml` (сборка, тесты, стиль кода на �
 | `app/.../mihon/app/di/AppGraph.kt` | Поле `downloadProvider` | Перевод глав из меню загружает страницы теми же загрузчиками, что и читалка (`ChapterLoader`), а ему нужен `DownloadProvider` |
 | `app/.../presentation/manga/components/MangaBottomActionMenu.kt` | Параметр `onTranslateClicked` и кнопка «Перевести» (значок-глобус) в меню выделенных глав | Перевести выбранные главы в фоне, не открывая их |
 | `app/.../presentation/manga/MangaScreen.kt` → `SharedMangaBottomActionMenu` | Параметр `manga`, кнопка вызывает `ChapterTranslation.start` | То же |
+| `app/.../presentation/reader/appbars/ReaderBottomBar.kt` | `PlusReaderButton()` перед кнопкой настроек | Переключение «оригинал / перевод» прямо в читалке; кнопка видна, только пока включена функция Re:Lad |
 
 ## Наши файлы (конфликтов с Mihon не бывает)
 

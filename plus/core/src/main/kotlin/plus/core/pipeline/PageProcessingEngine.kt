@@ -92,6 +92,12 @@ class PageProcessingEngine(
     }
 
     /**
+     * The reader asked again (Retry, or Translate on chapters that stopped): pages that failed are
+     * tried at once instead of after [RETRY_AFTER_MS], and the reader shows them again.
+     */
+    fun retryFailed() = onSettingsChanged()
+
+    /**
      * Returns the most processed version of [original] that is already cached and schedules
      * the missing steps. Cheap apart from hashing; call it from a background thread.
      */
