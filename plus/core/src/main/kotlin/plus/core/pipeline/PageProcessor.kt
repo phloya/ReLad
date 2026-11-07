@@ -31,6 +31,12 @@ interface PageProcessor {
      */
     suspend fun process(input: ByteArray, context: PageContext): ProcessedPage
 
+    /**
+     * The reader asked for this page to be made again (Translate again): forget what this step
+     * keeps of [input] beyond the engine's cache (a kept translation), so [process] starts afresh.
+     */
+    fun forget(input: ByteArray, context: PageContext) = Unit
+
     companion object {
         const val DEFAULT_CONCURRENCY = 2
     }

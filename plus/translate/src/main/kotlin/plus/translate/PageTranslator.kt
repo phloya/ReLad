@@ -135,6 +135,13 @@ class PageTranslator(
         "sfx=${s.translateSoundEffects}",
     ).joinToString("|")
 
+    /** Translate again: the kept translation of this page goes, the model is asked anew. */
+    override fun forget(input: ByteArray, context: PageContext) {
+        val s = settings()
+        val provider = s.provider ?: return
+        translations?.remove(TranslationStore.key(input, textSignature(s, provider)))
+    }
+
     /** Same language; Chinese only when the script matches too (Simplified and Traditional differ). */
     private fun sameLanguage(source: String?, target: String): Boolean {
         if (source == null) return false

@@ -45,6 +45,12 @@ class PageProcessingEngineTest {
             if (fail) error("$id failed")
             return ProcessedPage(input + "+$id".toByteArray(), metadata = "meta-$id")
         }
+
+        var forgotten: String? = null
+
+        override fun forget(input: ByteArray, context: PageContext) {
+            forgotten = input.decodeToString()
+        }
     }
 
     private fun TestScope.engine(vararg processors: PageProcessor, now: () -> Long = { 0L }) = PageProcessingEngine(
@@ -276,6 +282,23 @@ class PageProcessingEngineTest {
         engine.prepare(original, context)
         tag.calls shouldBe 2
         engine.state(PageProcessingEngine.sha256(original), context) shouldBe PageProcessingEngine.PageState.Done
+    }
+
+    @Test
+    fun `a page made again redoes the step and the ones after it, not the ones before`() = runTest {
+        val first = TagProcessor("a", 1)
+        val second = TagProcessor("b", 2)
+        val third = TagProcessor("c", 3)
+        val engine = engine(first, second, third)
+        engine.prepare(original, context)
+
+        engine.redo(original, context, "b")
+        // The step forgets what it keeps of its own input: the earlier step's image
+        second.forgotten shouldBe "page+a"
+        engine.state(PageProcessingEngine.sha256(original), context) shouldBe PageProcessingEngine.PageState.Waiting
+        engine.prepare(original, context)
+        listOf(first.calls, second.calls, third.calls) shouldBe listOf(1, 2, 2)
+        engine.resolve(original, context).image.decodeToString() shouldBe "page+a+b+c"
     }
 
     private val workScopes = mutableListOf<CoroutineScope>()

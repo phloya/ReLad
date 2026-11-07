@@ -96,6 +96,7 @@ import kotlinx.coroutines.launch
 import logcat.LogPriority
 import mihon.app.di.AppGraph
 import mihon.core.metro.metroGraph
+import plus.app.reader.PlusPageActions
 import tachiyomi.core.common.Constants
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.system.logcat
@@ -329,6 +330,12 @@ class ReaderActivity : BaseActivity() {
                     onSetAsCover = viewModel::setAsCover,
                     onShare = viewModel::shareImage,
                     onSave = viewModel::saveImage,
+                    // PLUS
+                    plusActions = {
+                        (state.dialog as? ReaderViewModel.Dialog.PageActions)?.let {
+                            PlusPageActions(this@ReaderActivity, it.page, onDismissRequest)
+                        }
+                    },
                 )
             }
             null -> {}

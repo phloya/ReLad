@@ -29,6 +29,8 @@ class TranslationStore(private val dir: File) {
         tmp.renameTo(file(key))
     }
 
+    fun remove(key: String) = synchronized(lock) { file(key).delete() }
+
     fun sizeBytes(): Long = synchronized(lock) { dir.listFiles()?.sumOf { it.length() } ?: 0L }
 
     fun count(): Int = synchronized(lock) { dir.listFiles()?.count { it.name.endsWith(SUFFIX) } ?: 0 }
