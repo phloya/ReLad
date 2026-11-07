@@ -68,22 +68,29 @@ class PlusGraph(val context: Context) {
         )
     }
 
-    fun isAvailable(feature: PlusFeature): Boolean = feature.id in processors
+    fun isAvailable(feature: PlusFeature): Boolean = !feature.processesPages || feature.id in processors
 
     fun isEnabled(feature: PlusFeature): Boolean =
         isAvailable(feature) && preferences.featureEnabled(feature.id).get()
 
-    fun anyEnabled(): Boolean = features.any { isEnabled(it) }
+    /** Whether pages go through the pipeline at all. */
+    fun anyEnabled(): Boolean = features.any { it.processesPages && isEnabled(it) }
 
     fun aiProvider(id: String): AiProviderConfig? = preferences.aiProviders().firstOrNull { it.id == id }
 
     fun aiClient(provider: AiProviderConfig): AiClient =
         AiClients.create(provider, secrets.get(provider.id), httpClient)
 
-    // Any Re:Lad setting change means pages may look different: let the reader reload them.
+    /** Settings of features that do not change page images: switching them reloads no pages. */
+    private val readerOnlyKeys = features.filter { !it.processesPages }
+        .flatMap { listOf("plus_feature_${it.id}", "plus_${it.id}_") }
+
+    // Any other Re:Lad setting change means pages may look different: let the reader reload them.
     // Kept in a field: SharedPreferences only holds listeners weakly.
     private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key != null && key.startsWith("plus_")) engine.onSettingsChanged()
+        if (key != null && key.startsWith("plus_") && readerOnlyKeys.none { key.startsWith(it) }) {
+            engine.onSettingsChanged()
+        }
     }
 
     init {

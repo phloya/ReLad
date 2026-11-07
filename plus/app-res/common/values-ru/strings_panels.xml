@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PLUS: Re:Lad, чтение по кадрам (см. plus/HOOKS.md) -->
+<resources>
+    <string name="plus_feature_panels">Чтение по кадрам</string>
+    <string name="plus_feature_panels_summary">Читалка приближает по одному кадру; свайп или нажатие — следующий кадр</string>
+    <string name="plus_panels_reader_button">Чтение по кадрам</string>
+    <string name="plus_panels_turned_on">Чтение по кадрам: вкл.</string>
+    <string name="plus_panels_turned_off">Чтение по кадрам: выкл.</string>
+    <string name="plus_panels_order">Порядок кадров</string>
+    <string name="plus_panels_order_auto">По направлению чтения</string>
+    <string name="plus_panels_order_rtl">Справа налево (манга)</string>
+    <string name="plus_panels_order_ltr">Слева направо (комиксы)</string>
+    <string name="plus_panels_page_first">Сначала вся страница</string>
+    <string name="plus_panels_page_first_summary">Перед первым кадром каждой страницы</string>
+    <string name="plus_panels_dim">Затемнять соседние кадры</string>
+    <string name="plus_panels_dim_summary">Всё вокруг читаемого кадра становится темнее</string>
+    <string name="plus_panels_how">Кадры находятся прямо на телефоне, без интернета. В режимах «страницы» читалка приближает каждый кадр; очень высокие кадры показываются по ширине экрана в несколько шагов. В режимах «лента» полоса делится на экраны по пустым промежуткам между кадрами. Страницы без заметных рамок показываются целиком. Кнопка с рамкой в меню читалки включает и выключает режим.</string>
+</resources>

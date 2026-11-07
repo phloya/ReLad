@@ -197,6 +197,9 @@ class WebtoonPageHolder(
             val (source, isAnimated) = withContext(Dispatchers.Default) {
                 val source = process(buffer)
                 val isAnimated = ImageUtil.isAnimatedAndSupported(source)
+                // PLUS --> Re:Lad panel-by-panel reading finds the empty bands of the strip
+                if (!isAnimated) plus.app.panels.PlusPanels.onWebtoonImage(viewer, frame, source)
+                // PLUS <--
                 Pair(source, isAnimated)
             }
             withContext(Dispatchers.Main) {

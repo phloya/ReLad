@@ -52,6 +52,25 @@ Workflow Mihon `build.yml` (сборка, тесты, стиль кода на �
 | `app/.../reader/viewer/pager/PagerPageHolder.kt` | `page.statusFlow` → `PlusReader.statusFlow(...)`, `page.stream` → `PlusReader.stream(...)` | Страница проходит через конвейер Re:Lad (перевод, улучшение, раскраска) и перезагружается, когда готова обработанная версия |
 | `app/.../reader/viewer/webtoon/WebtoonPageHolder.kt` | То же для режима ленты | То же |
 
+## Чтение по кадрам (ветка `relad/panels`)
+
+Вся логика — в `app/src/main/java/plus/app/panels/` и `plus/panels`. Когда режим выключен,
+каждая точка входа сразу возвращает обычное поведение Mihon.
+
+| Файл Mihon | Что изменено | Зачем |
+|---|---|---|
+| `app/.../reader/viewer/pager/Pager.kt` → `dispatchTouchEvent` | `super.dispatchTouchEvent(ev)` → `PlusPanels.dispatchTouch(this, ev) { super.dispatchTouchEvent(it) }` | В режиме кадров свайп ведёт к следующему кадру, а не тащит страницу и не двигает картинку |
+| `app/.../reader/viewer/pager/PagerViewer.kt` → `onReaderPageSelected` | Вызов `PlusPanels.onPageSelected(this, page, forward)` | Страница открывается на первом кадре (или на последнем, если пришли назад) |
+| `app/.../reader/viewer/pager/PagerViewer.kt` → `moveRight`, `moveLeft` | В начале: `if (PlusPanels.onPagerMove(...)) return` | Нажатия, клавиши и свайпы сначала идут к следующему кадру; после последнего кадра страница перелистывается сразу (без «панорамы» Mihon) |
+| `app/.../reader/viewer/pager/PagerPageHolder.kt` → `setImage` | Вызов `PlusPanels.onPagerImage(viewer, this, source)` после разрезания/поворота | Кадры ищутся на той картинке, которую показывает читалка |
+| `app/.../reader/viewer/pager/PagerPageHolder.kt` → `Config(landscapeZoom = …)` | `viewer.config.landscapeZoom` → `PlusPanels.landscapeZoom(viewer, …)` | «Приближение широких страниц» Mihon через полсекунды перебивало бы кадр |
+| `app/.../reader/viewer/webtoon/WebtoonPageHolder.kt` → `setImage` | Вызов `PlusPanels.onWebtoonImage(viewer, frame, source)` | Пустые полосы ленты для деления на экраны |
+| `app/.../reader/viewer/webtoon/WebtoonViewer.kt` → `scrollUp`, `scrollDown` | В начале: `if (PlusPanels.onWebtoonScroll(...)) return` | Нажатия и клавиши в ленте ведут к следующему куску, а не на ¾ экрана |
+| `app/.../presentation/reader/appbars/ReaderBottomBar.kt` | Кнопка `PanelsReaderButton()` перед кнопкой настроек | Включение и выключение режима прямо в читалке |
+
+Свайпы в ленте ловятся без правок Mihon: `RecyclerView.OnFlingListener` и слушатель прокрутки
+ставятся из нашего кода.
+
 ## Наши файлы (конфликтов с Mihon не бывает)
 
 | Путь | Что это |
@@ -63,6 +82,10 @@ Workflow Mihon `build.yml` (сборка, тесты, стиль кода на �
 | `plus/core/` | Модуль `:plus:core`: конвейер страниц (`pipeline/`), кеш обработанных страниц, подключение к ИИ (`ai/`: OpenAI-совместимые, Gemini, Claude), зашифрованное хранилище ключей (`secret/`), настройки (`settings/`) |
 | `app/src/main/java/plus/app/` | Наш код внутри приложения: `Plus.kt` (общие объекты), `PlusFeature.kt` (список функций), `reader/PlusReader.kt` (две точки входа в читалку), `ui/` (экран Re:Lad и ИИ-провайдеры), по пакету на функцию (`translate/`, `enhance/`, `colorize/`) |
 | `plus/tools/test-manga/` | Генератор тестовой главы (облачка на японском, корейском, китайском, английском) для проверки на эмуляторе |
+| `plus/panels/` | Модуль `:plus:panels`: поиск кадров (`PanelDetector`), порядок чтения (`ReadingOrder`), план приближений (`PanelPlanner`), деление ленты (`StripPlanner`), кеш (`PanelStore`) |
+| `app/src/main/java/plus/app/panels/` | Чтение по кадрам в приложении: функция и настройки (`PanelsFeature`), точки входа (`PlusPanels`), режим «страницы» (`PagerPanels`), затемнение (`PanelFocusView`), режим «лента» (`WebtoonPanels`), кнопка в читалке |
+| `plus/app-res/common/values*/strings_panels.xml`, `drawable/plus_ic_panels.xml` | Строки (en, ru) и значок чтения по кадрам |
+| `plus/tools/test-manga/MakePanelPages.java` | Синтетическая манга с номерами кадров для проверки порядка на эмуляторе |
 | `plus/README.md`, `plus/PLAN.md`, `plus/LICENSES.md` | Описание папки, план проекта, реестр лицензий |
 | `.github/README.md` | Страница Re:Lad на GitHub. GitHub показывает её вместо корневого `README.md` Mihon, который мы не трогаем |
 | `.github/workflows/relad-release.yml` | Выпуск по тегу `relad-vX.Y.Z`: подписанные APK, проверка отпечатка подписи, черновик выпуска |
