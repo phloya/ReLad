@@ -35,10 +35,10 @@ class OpenAiCompatibleClient(
         val body = buildJsonObject {
             put("model", config.model)
             putJsonArray("messages") {
-                if (request.system != null) {
+                request.fullSystem?.let { system ->
                     addJsonObject {
                         put("role", "system")
-                        put("content", request.system)
+                        put("content", system)
                     }
                 }
                 addJsonObject {

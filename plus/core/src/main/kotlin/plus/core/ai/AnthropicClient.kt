@@ -40,7 +40,20 @@ class AnthropicClient(
             put("model", config.model)
             put("max_tokens", request.maxOutputTokens)
             if (fallback) put("fallbacks", "default")
-            if (request.system != null) put("system", request.system)
+            if (request.stableSystem != null) {
+                // Cached up to each marker: the fixed part, then the fixed part plus the rest
+                putJsonArray("system") {
+                    listOfNotNull(request.stableSystem, request.system).forEach { text ->
+                        addJsonObject {
+                            put("type", "text")
+                            put("text", text)
+                            putJsonObject("cache_control") { put("type", "ephemeral") }
+                        }
+                    }
+                }
+            } else if (request.system != null) {
+                put("system", request.system)
+            }
             putJsonArray("messages") {
                 addJsonObject {
                     put("role", "user")

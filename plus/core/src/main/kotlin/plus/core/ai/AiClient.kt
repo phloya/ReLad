@@ -44,7 +44,18 @@ class AiRequest(
     /** Ask for a JSON answer where the API supports a JSON mode. The prompt must describe the format too. */
     val jsonOutput: Boolean = false,
     val maxOutputTokens: Int = 16_384,
-)
+    /**
+     * Beginning of the system prompt that is the same in many requests (fixed rules, a title's
+     * glossary); [system] follows it. Providers keep such a beginning cached and bill it 5–20 times
+     * cheaper on repeat: Anthropic when marked (a marker after this part and after [system]),
+     * OpenAI and Gemini on their own when the beginning of the request repeats.
+     */
+    val stableSystem: String? = null,
+) {
+    /** The whole system prompt, for APIs that take one text. */
+    val fullSystem: String?
+        get() = listOfNotNull(stableSystem, system).joinToString("\n\n").ifEmpty { null }
+}
 
 class AiResponse(
     val text: String?,
