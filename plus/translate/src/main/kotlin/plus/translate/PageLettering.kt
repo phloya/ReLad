@@ -414,14 +414,41 @@ object PageLettering {
             }
         }
         if (right <= left) return null
+        val words = TextPieces.of(plan.text, plan.font, plan.locale)
+        // Smaller first, in the bubble's shape: a letterer shrinks a line before splitting a word
+        // (as small as it takes for the longest word to fit the bubble's width, if that's smaller)
+        val wordFits = if (words.widest > 0) (right - left) * WORD_FIT / words.widest else size
+        val smallest = maxOf(minOf(size * LAST_RESORT_SCALE, wordFits), MIN_PIXELS)
+        TextBlockLayout.place(
+            words,
+            room,
+            anchor,
+            size,
+            smallest,
+            style,
+            plan.ink?.box?.let {
+                (it.left + it.right) / 2f
+            },
+        )
+            ?.let { return it }
+        // Then out of the shape (the bubble's width, any height); only then a word split by letters
         val tall = Room.of(Box(left, 0, right + 1, height))
         val loose = TextBlockLayout.Style(style.measurer, style.lineHeight, 0f, 0f)
-        return TextBlockLayout.place(TextPieces.of(plan.text, plan.font, plan.locale), tall, anchor, size, size, loose)
+        return TextBlockLayout.place(words, tall, anchor, size, smallest, loose)
             ?: TextBlockLayout.place(TextPieces.characters(plan.text, plan.font), tall, anchor, size, size, loose)
     }
 
     /** How far around the text box the bubble may extend, as a share of the box's longer side. */
     private const val SEARCH_MARGIN = 1.0f
+
+    /** Before a word is split, text may get this much smaller than its smallest normal size... */
+    private const val LAST_RESORT_SCALE = 0.7f
+
+    /** The longest word takes at most this share of the bubble's widest row. */
+    private const val WORD_FIT = 0.65f
+
+    /** ...but never smaller than this, in pixels: unreadable. */
+    private const val MIN_PIXELS = 9f
     private const val VERTICAL_RATIO = 1.2f
 
     /** The measured letter size is trusted within this range around the rough one from the box. */
