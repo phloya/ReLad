@@ -30,13 +30,13 @@ internal class PageTextTranslator(
 
     class Result(val regions: List<TextRegion>, val usage: PageUsage?, val fixedLines: Int)
 
-    /** The image as the model gets it, with its size (smaller than the page when scaled down). */
-    class ModelImage(val image: AiImage, val width: Int, val height: Int)
-
     /**
-     * [width] × [height] is the page; boxes come back in its pixels. [units]: how the model is asked
-     * for coordinates (Claude: pixels, others: 0–1000).
+     * An image as the model gets it, with its size (smaller than the page when scaled down). A long
+     * strip goes as several, each showing page rows [top] until [top] + [rows]; `null` rows: all.
      */
+    class ModelImage(val image: AiImage, val width: Int, val height: Int, val top: Int = 0, val rows: Int? = null)
+
+    /** One image of the whole page. */
     suspend fun translate(
         client: AiClient,
         image: ModelImage,
@@ -46,10 +46,25 @@ internal class PageTextTranslator(
         language: TargetLanguage,
         translateSoundEffects: Boolean,
         units: BoxUnits = BoxUnits.PerMille,
+    ): Result = translate(client, listOf(image), width, height, context, language, translateSoundEffects, units)
+
+    /**
+     * [width] × [height] is the page; boxes come back in its pixels. [units]: how the model is asked
+     * for coordinates (Claude: pixels, others: 0–1000). [images]: the page, or its parts from top to bottom.
+     */
+    suspend fun translate(
+        client: AiClient,
+        images: List<ModelImage>,
+        width: Int,
+        height: Int,
+        context: PageContext,
+        language: TargetLanguage,
+        translateSoundEffects: Boolean,
+        units: BoxUnits = BoxUnits.PerMille,
     ): Result {
         ChapterMemory.started(context.chapterId, context.pageIndex)
         try {
-            return run(client, image, width, height, context, language, translateSoundEffects, units)
+            return run(client, images, width, height, context, language, translateSoundEffects, units)
         } finally {
             ChapterMemory.finished(context.chapterId, context.pageIndex)
         }
@@ -57,7 +72,7 @@ internal class PageTextTranslator(
 
     private suspend fun run(
         client: AiClient,
-        image: ModelImage,
+        images: List<ModelImage>,
         width: Int,
         height: Int,
         context: PageContext,
@@ -88,16 +103,18 @@ internal class PageTextTranslator(
                     context.chapterName,
                     context.pageIndex,
                     previous,
-                    imageSize = if (units == BoxUnits.Pixels) image.width to image.height else null,
+                    imageSizes = images.map { it.width to it.height },
+                    pixels = units == BoxUnits.Pixels,
                 ),
-                images = listOf(image.image),
+                images = images.map { it.image },
                 jsonOutput = true,
                 effort = pageEffort,
             ),
         )
         response.usage?.let(usage::add)
         val answer = response.text ?: throw AiException("The model sent no text", AiException.Kind.BadResponse)
-        val page = TranslationParser.parsePage(answer, width, height, units, image.width, image.height)
+        val parts = images.map { TranslationParser.ImagePart(it.top, it.rows ?: height, it.width, it.height) }
+        val page = TranslationParser.parseParts(answer, width, units, parts)
         // A model that won't translate a page often says so in its page notes instead of refusing
         // outright: that is a refusal (shown to the reader), not a page without text, and no note
         if (page.regions.isEmpty() && Refusals.looksLike(page.findings.summary)) {

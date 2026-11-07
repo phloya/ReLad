@@ -129,11 +129,26 @@ object TranslationPrompt {
         chapterName: String,
         pageIndex: Int,
         previous: List<TextRegion>,
-        imageSize: Pair<Int, Int>? = null,
+        imageSizes: List<Pair<Int, Int>> = emptyList(),
+        pixels: Boolean = false,
     ): String =
         buildString {
             append("Chapter: ").append(chapterName).append(", page ").append(pageIndex + 1).append(".\n")
-            imageSize?.let { (w, h) -> append("The image is ").append(w).append(" × ").append(h).append(" pixels.\n") }
+            if (imageSizes.size > 1) {
+                // A long strip in parts: the answer format gets a "part" for each region
+                append("This page is a long strip, sent as ").append(imageSizes.size)
+                append(" images from top to bottom (image 1 is the top). Images next to each other may overlap a ")
+                append("little: give text seen in two of them once. Add \"part\" to every region: the number of the ")
+                append("image it is in; its box is in that image")
+                if (pixels) {
+                    append(", in its pixels. Image sizes: ")
+                    append(imageSizes.withIndex().joinToString(", ") { (i, s) -> "${i + 1}: ${s.first} × ${s.second}" })
+                }
+                append(".\n")
+            } else if (pixels && imageSizes.isNotEmpty()) {
+                val (w, h) = imageSizes.single()
+                append("The image is ").append(w).append(" × ").append(h).append(" pixels.\n")
+            }
             val soFar = BiblePrompt.chapterSoFar(bible, chapterId, pageIndex)
             if (soFar.isNotEmpty()) append("Earlier in this chapter: ").append(soFar).append('\n')
             if (previous.isNotEmpty()) {

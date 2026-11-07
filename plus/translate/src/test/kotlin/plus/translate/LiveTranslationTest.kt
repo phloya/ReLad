@@ -21,6 +21,9 @@ import plus.core.ai.AiRequest
 import plus.core.ai.AiResponse
 import plus.core.pipeline.PageContext
 import plus.translate.bible.BibleStore
+import java.awt.RenderingHints
+import java.awt.image.BufferedImage
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.imageio.ImageIO
@@ -34,10 +37,11 @@ import javax.imageio.ImageIO
  *
  * Optional: RELAD_LIVE_KEY_FILE (default ~/.relad/anthropic.key), RELAD_LIVE_MODEL (claude-sonnet-5-5),
  * RELAD_LIVE_LANGUAGE (en), RELAD_LIVE_SOURCE (source language code), RELAD_LIVE_LIMIT (pages per chapter),
- * RELAD_LIVE_TITLE, RELAD_LIVE_PARALLEL (pages at once, as the app does; default 1), RELAD_LIVE_EFFORT
- * (the page request's reasoning: none, low…; default as in the app). Writes each page's lines with
- * the model's boxes and usage, the same with the boxes put onto the text found on the page
- * ([TextPlacer], as the app does) into placed/, the title's notes and a summary into RELAD_LIVE_OUT.
+ * RELAD_LIVE_TITLE, RELAD_LIVE_PARALLEL (pages at once, as the app does; default 1), RELAD_LIVE_WHOLE
+ * (send a long strip whole, scaled down, as before parts), RELAD_LIVE_EFFORT (the page request's
+ * reasoning: none, low…; default as in the app). Writes each page's lines with the model's boxes and
+ * usage, the same with the boxes put onto the text found on the page ([TextPlacer], as the app does)
+ * into placed/, the title's notes and a summary into RELAD_LIVE_OUT.
  */
 @EnabledIfEnvironmentVariable(named = "RELAD_LIVE_PAGES", matches = ".+")
 class LiveTranslationTest {
@@ -116,10 +120,11 @@ class LiveTranslationTest {
                             val result = try {
                                 translator.translate(
                                     client = clientFor(name),
-                                    image = PageTextTranslator.ModelImage(
-                                        AiImage(bytes, mime),
-                                        image.width,
-                                        image.height,
+                                    images = modelImages(
+                                        image,
+                                        bytes,
+                                        mime,
+                                        whole = !env["RELAD_LIVE_WHOLE"].isNullOrEmpty(),
                                     ),
                                     width = image.width,
                                     height = image.height,
@@ -179,5 +184,49 @@ class LiveTranslationTest {
         summary.append("PLACING ${placing / 1_000_000} ms in all\n")
         summary.append("\nTOTAL input=$input (cached read $cached, cache write $written) output=$output\n")
         File(out, "summary.tsv").writeText(summary.toString())
+    }
+
+    /** The page as the app sends it: whole, or a long strip in parts at its own width. */
+    private fun modelImages(
+        image: BufferedImage,
+        bytes: ByteArray,
+        mime: String,
+        whole: Boolean,
+    ): List<PageTextTranslator.ModelImage> {
+        if (!StripParts.isStrip(image.width, image.height)) {
+            return listOf(PageTextTranslator.ModelImage(AiImage(bytes, mime), image.width, image.height))
+        }
+        if (whole) {
+            // As the app did before: the whole strip squeezed into 2048 px and 3.5 MP
+            val factor = minOf(
+                2048.0 / maxOf(image.width, image.height),
+                kotlin.math.sqrt(3_500_000.0 / (image.width.toLong() * image.height)),
+            )
+            return listOf(jpeg(image, 0, image.height, factor))
+        }
+        val pixels = image.getRGB(0, 0, image.width, image.height, null, 0, image.width)
+        val spread = StripParts.rowSpread(pixels, image.width, image.height)
+        return StripParts.parts(image.width, image.height, spread, 1.0).map { rows ->
+            jpeg(image, rows.first, rows.last + 1, minOf(1.0, 2000.0 / maxOf(image.width, rows.last + 1 - rows.first)))
+        }
+    }
+
+    private fun jpeg(image: BufferedImage, top: Int, bottom: Int, factor: Double): PageTextTranslator.ModelImage {
+        val width = (image.width * factor).toInt().coerceAtLeast(1)
+        val height = ((bottom - top) * factor).toInt().coerceAtLeast(1)
+        val part = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+        val g = part.createGraphics()
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+        g.drawImage(image, 0, 0, width, height, 0, top, image.width, bottom, null)
+        g.dispose()
+        val out = ByteArrayOutputStream()
+        ImageIO.write(part, "jpg", out)
+        return PageTextTranslator.ModelImage(
+            AiImage(out.toByteArray(), "image/jpeg"),
+            width,
+            height,
+            top = top,
+            rows = bottom - top,
+        )
     }
 }
