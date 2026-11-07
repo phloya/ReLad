@@ -26,13 +26,29 @@ import kotlin.math.sqrt
 object PanelDetector {
 
     /** Bump when the result changes, so pages are not served from an older version's cache. */
-    const val VERSION = 5
+    const val VERSION = 6
 
     /** Gutter pixels are within this of the background level. */
     private const val TOLERANCE = 40
 
     /** A band crossing a piece is a gutter when at most this share of it belongs to the piece. */
     private const val CUT_OCCUPANCY = 0.35f
+
+    /** Frame lines are looked for in a piece at least this share of the page, in its parts down to [LINE_PART]. */
+    private const val LINE_PIECE = 0.5f
+    private const val LINE_PART = 0.2f
+
+    /** Each part of a frame-line cut is at least this share of the piece across the line. */
+    private const val LINE_MIN_PART = 0.2f
+
+    /** Darker than this is ink of a frame line. */
+    private const val LINE_DARK = 90
+
+    /** A frame line is dark along at least this share of its length. */
+    private const val LINE_PRESENT = 0.85f
+
+    /** A side of a piece at least this straight is a frame: the piece is not joined across it. */
+    private const val OPEN_EDGE = 0.5f
 
     /** One side of a cut must run along a frame line for at least this share of its length. */
     private const val CUT_FRAME = 0.3f
@@ -99,10 +115,24 @@ object PanelDetector {
         val minFill = if (background.light) 0.03f else 0.5f
         val found = pieces
             .filter { unit.isPanelSized(it) && it.count >= minFill * it.area }
-            .flatMap { cut(it, labels, w, unit, depth = 0, checkFrames = sure) }
+            .flatMap {
+                // Frame lines are looked for only in a piece that the gutters left as most of the
+                // page (panels joined by shared frames): inside a single panel, lines of the art
+                // (a roof, a building, strings) look much like frames
+                val lines = background.light && it.area >= LINE_PIECE * w * h && !it.coversPage(w, h)
+                cut(
+                    it, image, labels, w, unit, depth = 0, checkFrames = sure, frameLines = lines,
+                    minLineArea = (
+                        LINE_PART *
+                            w *
+                            h
+                        ).toInt(),
+                )
+            }
             .filter { unit.isPanelSized(it) }
         val joins = Joins(pieces.size + 1)
-        val panels = absorbFragments(merge(found, joins), gutter, labels, w, h, joins)
+        val absorbed = absorbFragments(merge(found, joins), gutter, labels, w, h, joins)
+        val panels = if (background.light) joinOpenPieces(absorbed, labels, w, h, joins) else absorbed
         val roots = IntArray(pieces.size + 1) { joins.root(it) }
 
         val covered = panels.sumOf { it.area.toLong() }.toFloat() / (w.toLong() * h)
@@ -117,6 +147,16 @@ object PanelDetector {
                 shape = shapeOf(it, labels, roots, w, h),
             )
         }
+    }
+
+    /**
+     * The piece reaches all four page edges and fills nearly all of it: a cover or a title
+     * illustration, where long straight lines are art (a horizon, lettering), not frames.
+     */
+    private fun Region.coversPage(w: Int, h: Int): Boolean {
+        val margin = 0.02f
+        return x0 <= margin * w && y0 <= margin * h && x1 >= (1 - margin) * w - 1 && y1 >= (1 - margin) * h - 1 &&
+            count >= 0.8f * w * h
     }
 
     /**
@@ -526,17 +566,105 @@ object PanelDetector {
      */
     private fun cut(
         region: Region,
+        image: GrayImage,
         labels: IntArray,
         w: Int,
         unit: Sizes,
         depth: Int,
         checkFrames: Boolean,
+        frameLines: Boolean,
+        minLineArea: Int,
     ): List<Region> {
         if (depth > 6) return listOf(region)
         val across = bestCut(region, labels, w, unit, horizontal = true, checkFrames)
         val along = bestCut(region, labels, w, unit, horizontal = false, checkFrames = false)
-        val best = listOfNotNull(across, along).minByOrNull { it.score } ?: return listOf(region)
-        return best.parts.flatMap { cut(it, labels, w, unit, depth + 1, checkFrames) }
+        // Panels that share a frame line, with no gutter between them (common in Berserk)
+        // A part smaller than [minLineArea] is taken as one panel
+        val lines = frameLines && region.area >= minLineArea
+        val lineAcross = if (lines) frameLineCut(region, image, labels, w, unit, horizontal = true) else null
+        val lineAlong = if (lines) frameLineCut(region, image, labels, w, unit, horizontal = false) else null
+        val best = listOfNotNull(across, along, lineAcross, lineAlong).minByOrNull { it.score } ?: return listOf(region)
+        return best.parts.flatMap { cut(it, image, labels, w, unit, depth + 1, checkFrames, frameLines, minLineArea) }
+    }
+
+    /**
+     * A cut along a frame line that two panels share, with no gutter between them: a thin,
+     * straight, solid dark line from one end of the piece to the other, not inside a dark area.
+     * Lines of art rarely run that solid from frame to frame. Gutters win over such cuts.
+     */
+    private fun frameLineCut(
+        region: Region,
+        image: GrayImage,
+        labels: IntArray,
+        w: Int,
+        unit: Sizes,
+        horizontal: Boolean,
+    ): Cut? {
+        val lines = if (horizontal) region.height else region.width
+        val length = if (horizontal) region.width else region.height
+        if (lines < 20 || length < 20) return null
+        val dark = BooleanArray(lines * length)
+        for (l in 0 until lines) {
+            for (i in 0 until length) {
+                val x = if (horizontal) region.x0 + i else region.x0 + l
+                val y = if (horizontal) region.y0 + l else region.y0 + i
+                val index = y * w + x
+                dark[l * length + i] = labels[index] == region.id && (image.pixels[index].toInt() and 0xFF) < LINE_DARK
+            }
+        }
+        // Share of positions dark on line l, or within r lines of it (scans are a little tilted)
+        fun share(l: Int, r: Int, from: Int = 0, to: Int = length): Float {
+            var n = 0
+            for (i in from until to) {
+                for (k in max(0, l - r)..min(lines - 1, l + r)) {
+                    if (dark[k * length + i]) {
+                        n++
+                        break
+                    }
+                }
+            }
+            return n.toFloat() / (to - from)
+        }
+        val wide = FloatArray(lines) { share(it, 2) }
+        val unitSide = if (horizontal) unit.height else unit.width
+        // Panels cut off by a frame line are not slivers
+        val minPart = max(unitSide * 0.05f, lines * LINE_MIN_PART)
+        val maxRun = max(6, (unitSide * 0.006f).roundToInt()) + 4
+        val end = max(2, length / 20)
+
+        var best: Cut? = null
+        var l = 0
+        while (l < lines) {
+            if (wide[l] < LINE_PRESENT) {
+                l++
+                continue
+            }
+            val start = l
+            while (l < lines && wide[l] >= LINE_PRESENT) l++
+            val stop = l - 1
+            // A frame line is thin: a long run is a dark area, not a line
+            if (stop - start + 1 > maxRun) continue
+            if (start < minPart || lines - 1 - stop < minPart) continue
+            // Solid: one line (give or take one) is dark nearly all along
+            val core = (start..stop).maxBy { share(it, 1) }
+            val solid = share(core, 1)
+            if (solid < LINE_PRESENT) continue
+            // From end to end of the piece, like a frame, not a line inside the art
+            if (share(core, 2, 0, end) < 0.6f || share(core, 2, length - end, length) < 0.6f) continue
+            // Not inside a dark area: at least one side of the line is light
+            val off = 4
+            val beforeLine = if (start - off >= 0) share(start - off, 0) else 1f
+            val afterLine = if (stop + off < lines) share(stop + off, 0) else 1f
+            if (min(beforeLine, afterLine) >= 0.5f) continue
+            val first = tighten(region, labels, w, horizontal, 0, start - 1) ?: continue
+            val second = tighten(region, labels, w, horizontal, stop + 1, lines - 1) ?: continue
+            val spanFirst = if (horizontal) first.width else first.height
+            val spanSecond = if (horizontal) second.width else second.height
+            if (spanFirst < 0.4f * length || spanSecond < 0.4f * length) continue
+            val score = CUT_OCCUPANCY + 0.01f + (1 - solid) * 0.1f
+            if (best == null || score < best.score) best = Cut(listOf(first, second), score)
+        }
+        return best
     }
 
     private class Cut(val parts: List<Region>, val score: Float)
@@ -754,6 +882,98 @@ object PanelDetector {
             }
         }
         return list
+    }
+
+    /**
+     * A panel without a closed frame (characters and balloons drawn on white) falls apart into
+     * its pieces: the white inside it is one with the gutter. Two pieces side by side (or one
+     * above the other) whose facing edges are both ragged (a balloon, hair, a figure) are joined:
+     * a real gutter runs along a frame line on at least one side.
+     */
+    private fun joinOpenPieces(regions: List<Region>, labels: IntArray, w: Int, h: Int, joins: Joins): List<Region> {
+        val list = regions.toMutableList()
+        var changed = true
+        while (changed) {
+            changed = false
+            search@ for (i in list.indices) {
+                for (j in list.indices) {
+                    if (i == j) continue
+                    val a = list[i]
+                    val b = list[j]
+                    val gapX = b.x0 - a.x1 - 1
+                    val gapY = b.y0 - a.y1 - 1
+                    val beside = a.x0 + a.x1 < b.x0 + b.x1 && gapX >= -0.02f * w && gapX <= 0.06f * w &&
+                        min(a.y1, b.y1) - max(a.y0, b.y0) >= 0.5f * min(a.height, b.height)
+                    val above = a.y0 + a.y1 < b.y0 + b.y1 && gapY >= -0.02f * h && gapY <= 0.04f * h &&
+                        min(a.x1, b.x1) - max(a.x0, b.x0) >= 0.5f * min(a.width, b.width)
+                    if (!beside && !above) continue
+                    if (straightness(a, if (beside) RIGHT else BOTTOM, labels, w, joins) >= OPEN_EDGE) continue
+                    if (straightness(b, if (beside) LEFT else TOP, labels, w, joins) >= OPEN_EDGE) continue
+                    val joined = Region(
+                        a.id,
+                        min(a.x0, b.x0),
+                        min(a.y0, b.y0),
+                        max(a.x1, b.x1),
+                        max(a.y1, b.y1),
+                        a.count + b.count,
+                    )
+                    // Joining must not cover another panel
+                    if (list.filterIndexed { k, _ ->
+                            k != i && k != j
+                        }.any { intersection(it, joined) > 0.1f * it.area }
+                    ) {
+                        continue
+                    }
+                    joins.join(b.id, a.id)
+                    list[i] = joined
+                    list.removeAt(j)
+                    changed = true
+                    break@search
+                }
+            }
+        }
+        return list
+    }
+
+    /**
+     * How well [region]'s [side] follows one straight line: the share of its rows (or columns)
+     * whose outermost pixel on that side lies on the best line through them. About 1 for a frame.
+     */
+    private fun straightness(region: Region, side: Int, labels: IntArray, w: Int, joins: Joins): Float {
+        val root = joins.root(region.id)
+        val alongRows = side == LEFT || side == RIGHT
+        val across = if (alongRows) region.y0..region.y1 else region.x0..region.x1
+        val inward = when (side) {
+            LEFT -> region.x0..region.x1
+            RIGHT -> region.x1 downTo region.x0
+            TOP -> region.y0..region.y1
+            else -> region.y1 downTo region.y0
+        }
+        val xs = FloatArray(across.last - across.first + 1)
+        val ys = FloatArray(xs.size)
+        var n = 0
+        for (a in across) {
+            for (b in inward) {
+                val label = if (alongRows) labels[a * w + b] else labels[b * w + a]
+                if (label != 0 && joins.root(label) == root) {
+                    xs[n] = a.toFloat()
+                    ys[n] = b.toFloat()
+                    n++
+                    break
+                }
+            }
+        }
+        if (n < 2) return 0f
+        val tolerance = EDGE_TOLERANCE.toFloat()
+        var line = fitLine(xs, ys, n) { true }
+        repeat(2) {
+            val (k, c) = line
+            line = fitLine(xs, ys, n) { abs(ys[it] - (k * xs[it] + c)) <= 4 * tolerance }
+        }
+        val (k, c) = line
+        var on = 0
+        for (i in 0 until n) if (abs(ys[i] - (k * xs[i] + c)) <= tolerance) on++
+        return on.toFloat() / xs.size
     }
 
     /** [big] with [small] joined to it, or `null` if [small] looks like a panel of its own. */

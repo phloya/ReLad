@@ -179,6 +179,37 @@ class PanelDetectorTest {
     }
 
     @Test
+    fun `panels that share a frame line without a gutter are told apart`() {
+        // One frame around two panels, split only by a black line (Berserk often does this)
+        val page = TestPage(w, h)
+        page.fill(30, 30, 670, 970, 0)
+        page.fill(34, 34, 666, 476, 200)
+        page.fill(34, 480, 666, 966, 120)
+        val random = kotlin.random.Random(13)
+        repeat(120) {
+            val top = it % 2 == 0
+            val x = random.nextInt(40, 660)
+            val y = if (top) random.nextInt(40, 470) else random.nextInt(486, 960)
+            val y2 = if (top) {
+                (
+                    y + random.nextInt(
+                        -40,
+                        40,
+                    )
+                    ).coerceIn(40, 470)
+            } else {
+                (y + random.nextInt(-40, 40)).coerceIn(486, 960)
+            }
+            page.line(x, y, (x + random.nextInt(-40, 40)).coerceIn(40, 660), y2, 2, if (top) 60 else 230)
+        }
+        page.noise(6)
+        val found = ReadingOrder.sort(PanelDetector.findPanels(page.image()), rightToLeft = true, pageAspect = 0.7f)
+        found shouldHaveSize 2
+        found[0].bottom shouldBe (0.48f plusOrMinus 0.01f)
+        found[1].top shouldBe (0.48f plusOrMinus 0.01f)
+    }
+
+    @Test
     fun `a page drawn to the edges is one panel`() {
         // Art to the edges: short strokes and texture everywhere, no band of paper across the page
         val page = TestPage(w, h, background = 120)
