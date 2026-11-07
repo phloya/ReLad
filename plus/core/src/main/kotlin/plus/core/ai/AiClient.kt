@@ -51,10 +51,22 @@ class AiRequest(
      * OpenAI and Gemini on their own when the beginning of the request repeats.
      */
     val stableSystem: String? = null,
+    /**
+     * How much hidden reasoning the model may spend: reasoning is billed as output, the dearest part.
+     * Sent only where the model is known to take it (Claude 4.6+ `effort`, Gemini 3+ `thinkingLevel`
+     * for [AiEffort.Low]); elsewhere the model's own default stays. `null`: the model's default.
+     */
+    val effort: AiEffort? = null,
 ) {
     /** The whole system prompt, for APIs that take one text. */
     val fullSystem: String?
         get() = listOfNotNull(stableSystem, system).joinToString("\n\n").ifEmpty { null }
+}
+
+enum class AiEffort(val wire: String) {
+    Low("low"),
+    Medium("medium"),
+    High("high"),
 }
 
 class AiResponse(

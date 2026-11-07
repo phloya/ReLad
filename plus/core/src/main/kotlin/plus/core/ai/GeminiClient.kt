@@ -63,6 +63,10 @@ class GeminiClient(
                     }
                     request.jsonOutput -> put("responseMimeType", "application/json")
                 }
+                // Gemini 3 and later take a level; "low" is the one every such model accepts
+                if (request.effort == AiEffort.Low && takesThinkingLevel()) {
+                    putJsonObject("thinkingConfig") { put("thinkingLevel", "low") }
+                }
             }
         }
         val model = config.model.removePrefix("models/")
@@ -71,6 +75,11 @@ class GeminiClient(
             .header("x-goog-api-key", apiKey)
             .post(jsonBody(body))
             .build()
+    }
+
+    private fun takesThinkingLevel(): Boolean {
+        val model = config.model.removePrefix("models/")
+        return model.startsWith("gemini-3") || model.startsWith("gemini-4")
     }
 
     override fun parseResponse(body: JsonObject): AiResponse {
