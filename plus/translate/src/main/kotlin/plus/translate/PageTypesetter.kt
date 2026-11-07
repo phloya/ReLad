@@ -1,6 +1,7 @@
 package plus.translate
 
 import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
@@ -38,6 +39,8 @@ object PageTypesetter {
         val fill = TextPaint(font.paint).apply {
             textSize = lettering.block.size
             color = lettering.fill
+            // Leaning as the original's letters (Android leans right for negative values)
+            if (lettering.skew != 0f) textSkewX = -lettering.skew
             if (thicken > 0f) {
                 // Bolder than the font: a stroke of the fill's colour around the letters
                 style = Paint.Style.FILL_AND_STROKE
@@ -53,6 +56,21 @@ object PageTypesetter {
                 this.color = color
             }
         }
+        // A soft glow around the letters, as the original's: their shape blurred in the glow's colour
+        val glow = lettering.glow?.let { color ->
+            TextPaint(fill).apply {
+                this.color = color
+                maskFilter = BlurMaskFilter(
+                    (lettering.glowRadius * fill.textSize).coerceAtLeast(1f),
+                    BlurMaskFilter.Blur.OUTER,
+                )
+                style = Paint.Style.FILL_AND_STROKE
+                strokeWidth = lettering.glowRadius * fill.textSize
+                strokeJoin = Paint.Join.ROUND
+            }
+        }
+        // The lean moves a line's top right: half of it back keeps the line where it was
+        val leaning = lettering.skew * font.capHeight * fill.textSize / 2
         val turned = lettering.angle != 0f
         if (turned) {
             canvas.save()
@@ -60,8 +78,9 @@ object PageTypesetter {
         }
         for (line in lettering.block.lines) {
             val text = font.drawable(line.text)
-            val x = line.centerX - fill.measureText(text) / 2
+            val x = line.centerX - fill.measureText(text) / 2 - leaning
             val rtl = isRtl(text)
+            glow?.let { canvas.drawTextRun(text, 0, text.length, 0, text.length, x, line.baseline, rtl, it) }
             // Outline first, then the fill on top: readable over any art
             outline?.let { canvas.drawTextRun(text, 0, text.length, 0, text.length, x, line.baseline, rtl, it) }
             canvas.drawTextRun(text, 0, text.length, 0, text.length, x, line.baseline, rtl, fill)

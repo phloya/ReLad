@@ -33,6 +33,12 @@ object PageLettering {
         val pivotY: Float = 0f,
         /** The letters drawn this much (share of the size) bolder than the font. */
         val thicken: Float = 0f,
+        /** The letters lean this far right per unit of height (italic, as the original's). */
+        val skew: Float = 0f,
+        /** A soft glow of this colour around the letters, or `null`. */
+        val glow: Int? = null,
+        /** How far the glow reaches, as a share of the text size. */
+        val glowRadius: Float = 0f,
     )
 
     /** Erases the originals in [pixels] and returns what to draw. */
@@ -58,10 +64,12 @@ object PageLettering {
             .takeIf { it.size >= MIN_PAGE_CORES }?.let { it[it.size / 2] }
         // Bubbles the model put beside their letters are moved onto them first
         val placed = own.mapIndexed { i, region ->
-            if (region.type != RegionType.Bubble || inPlace[i] != null) {
+            val others = own.filterIndexed { j, _ -> j != i }.map { it.box }
+            if (region.type != RegionType.Bubble || inPlace[i] != null ||
+                onLetters(pixels, width, height, region.box, others)
+            ) {
                 region
             } else {
-                val others = own.filterIndexed { j, _ -> j != i }.map { it.box }
                 // The first nearby place inside a closed bubble with letters; the box then goes onto
                 // those letters (the bubble's, found whole: a place may catch only a bit of them)
                 // (never onto another text's letters: a bubble with two texts holds both)
@@ -82,7 +90,10 @@ object PageLettering {
         }
 
         // 1. Everything is found and measured on the original page, before anything is erased
-        val plans = placed.map { region -> analyze(pixels, width, height, region, locale, fonts) }
+        val plans = placed.map { region ->
+            val others = placed.filter { it !== region && it.type.erasesOriginal }.map { it.box }
+            analyze(pixels, width, height, region, locale, fonts, others)
+        }
 
         if (log != null) {
             plans.forEach { p ->
@@ -107,6 +118,11 @@ object PageLettering {
         plans.forEach { plan ->
             val bubble = plan.bubble ?: return@forEach
             if (plan.floating || plan.art != null) return@forEach
+            val gradient = plan.gradient
+            if (gradient != null) {
+                // A bubble shaded from one colour to another: drawn on from around, not painted flat
+                return@forEach
+            }
             if (bubble.onArt) {
                 // Letters not measured: the model's box, with as thick an outline and margin as letters ever have
                 val ink = plan.ink
@@ -128,27 +144,39 @@ object PageLettering {
         }
         // Sound effects' letters: the art behind them is drawn on from the art around (no letters
         // copied in from another sound effect)
-        val drawn = plans.mapNotNull { it.sfx ?: it.art }
-        if (drawn.isNotEmpty()) {
-            val letters = BooleanArray(width * height)
-            for (sfx in drawn) {
-                for (i in sfx.mask.indices) {
-                    if (sfx.mask[i]) {
-                        letters[
-                            (sfx.area.top + i / sfx.area.width) * width + sfx.area.left +
-                                i % sfx.area.width,
-                        ] =
-                            true
-                    }
+        // Letters on a plain background of one colour are painted with it...
+        plans.mapNotNull { it.plain ?: it.gradient }.filter { it.flat }.forEach { plain ->
+            for (i in plain.erase.indices) {
+                if (plain.erase[i]) {
+                    pixels[(plain.area.top + i / plain.area.width) * width + plain.area.left + i % plain.area.width] =
+                        plain.background
                 }
             }
-            drawn.forEach { Inpaint.fill(pixels, width, height, it.area, it.mask, letters) }
+        }
+        // ...on a gradient or a glow, filled smoothly from around; on a texture (a screen's lines),
+        // drawn on from around like a sound's
+        plans.mapNotNull { it.plain ?: it.gradient }.filter { !it.flat && it.smooth }.forEach { plain ->
+            SmoothFill.fill(pixels, width, plain.area, plain.erase, plain.backgroundMask)
+        }
+        val drawn = plans.mapNotNull { plan ->
+            (plan.sfx ?: plan.art)?.let { it.area to it.mask }
+                ?: (plan.plain ?: plan.gradient)?.takeIf { !it.flat && !it.smooth }?.let { it.area to it.erase }
+        }
+        if (drawn.isNotEmpty()) {
+            val letters = BooleanArray(width * height)
+            for ((area, mask) in drawn) {
+                for (i in mask.indices) {
+                    if (mask[i]) letters[(area.top + i / area.width) * width + area.left + i % area.width] = true
+                }
+            }
+            drawn.forEach { (area, mask) -> Inpaint.fill(pixels, width, height, area, mask, letters) }
         }
 
         // 3. One letter size for the page's bubbles (and one for its captions), as a letterer keeps
         val pageSize = mutableMapOf<RegionType, Float>()
         for (type in listOf(RegionType.Bubble, RegionType.Caption)) {
-            val sizes = plans.filter { it.region.type == type }.mapNotNull { it.size }.sorted()
+            // (letters on a coloured background are their own style: a system window, a phone screen)
+            val sizes = plans.filter { it.region.type == type && !it.ownStyle }.mapNotNull { it.size }.sorted()
             if (sizes.isNotEmpty()) pageSize[type] = sizes[sizes.size / 2]
         }
         val anySize = pageSize[RegionType.Bubble] ?: pageSize[RegionType.Caption]
@@ -160,6 +188,7 @@ object PageLettering {
             val own = plan.size
             val size = when {
                 region.type == RegionType.Sfx -> null
+                plan.ownStyle && own != null -> own
                 own == null -> common ?: anySize
                 common != null && own in common * (1 - SAME_SIZE)..common * (1 + SAME_SIZE) -> common
                 else -> own
@@ -176,6 +205,16 @@ object PageLettering {
         val overlap = maxOf(0, minOf(a.right, b.right) - maxOf(a.left, b.left)).toLong() *
             maxOf(0, minOf(a.bottom, b.bottom) - maxOf(a.top, b.top))
         return overlap.toFloat() / (b.width.toLong() * b.height).coerceAtLeast(1)
+    }
+
+    /**
+     * The box holds its letters already (as [TextPlacer] puts it): their background is light and
+     * they lie in the box. Looking for a better place around would only take time.
+     */
+    private fun onLetters(pixels: IntArray, width: Int, height: Int, box: Box, others: List<Box>): Boolean {
+        val letters = PlainLetters.find(pixels, width, height, box, others) ?: return false
+        return BubbleEraser.luminance(letters.background) >= BubbleEraser.LIGHT_THRESHOLD &&
+            letters.whole >= MIN_WHOLE && share(box, letters.box) >= ALREADY_ON
     }
 
     /** No word in [text]: dots, marks, a cut-off breath (……ッ!!). */
@@ -275,7 +314,17 @@ object PageLettering {
         val sfx: SfxLetters.Letters? = null,
         /** Narration's letters on the art, found like a sound's: erased the same way, set as text. */
         val art: SfxLetters.Letters? = null,
+        /** Letters on a plain background of any colour (no light bubble): erased and drawn like them. */
+        val plain: PlainLetters.Letters? = null,
+        /** How the original letters are drawn (lean, weight), when they could be measured. */
+        val style: LetterStyle.Style? = null,
+        /** A light bubble shaded from one colour to another: its letters are drawn over from around. */
+        val gradient: PlainLetters.Letters? = null,
     ) {
+        /** Letters on a dark or coloured background: their own size, not the page's bubbles'. */
+        val ownStyle: Boolean
+            get() = plain != null && BubbleEraser.luminance(plain.background) < BubbleEraser.LIGHT_THRESHOLD
+
         /**
          * A bubble whose box is in no light area (the model put it on the art and no bubble was
          * found near): nothing is erased, the text is drawn outlined so the art isn't covered.
@@ -292,6 +341,7 @@ object PageLettering {
         region: TextRegion,
         locale: Locale,
         fonts: Fonts,
+        others: List<Box>,
     ): Plan {
         val upper = region.type == RegionType.Sfx || LetterCase.upper(region.text, region.type)
         val text = LetterCase.apply(LetterCase.withoutQuotes(region.translation, region.text), upper, locale)
@@ -325,6 +375,15 @@ object PageLettering {
         // found like a sound's, and the art behind them drawn on. Only when (nearly) all of them are
         // found: a part erased would leave the rest beside the translation
         val captionOnArt = !sign && region.type == RegionType.Caption && !found.onArt && found.coverage < ART_COVERAGE
+        // Letters on a background of any colour (a system window, a black caption box, a phone's
+        // screen, a dark bubble), found whole: erased to that background and drawn like they were
+        // (before narration on the art: a smooth background lets every line be found)
+        val letters = PlainLetters.find(pixels, width, height, region.box, others)
+        val lightBubble = !found.onArt && !captionOnArt && found.erased != null &&
+            found.coverage >= MIN_COVERAGE && found.fill >= MIN_FILL
+        if (letters != null && !lightBubble && letters.whole >= MIN_WHOLE) {
+            return plainPlan(region, text, font, letters, upper, locale)
+        }
         val art = if (!sign && (found.onArt || captionOnArt)) {
             SfxLetters.find(pixels, width, height, region.box, region.text)
                 ?.takeIf { it.pieces >= region.text.count(Char::isLetterOrDigit) * ART_PIECES }
@@ -400,7 +459,47 @@ object PageLettering {
             pitch / ink.core * (if (upper) font.capHeight else font.xHeight)
         }
         val lineHeight = (measured ?: font.lineHeight * NATURAL_SPACING).coerceIn(MIN_LINE_HEIGHT, MAX_LINE_HEIGHT)
-        return Plan(region, text, font, bubble, ink, size, lineHeight, locale)
+        // The lean and weight of the bubble's letters, when found where they were measured
+        val style = letters?.takeIf { l ->
+            ink != null && l.letterHeight in ink.core * MIN_SAME_HEIGHT..ink.core * MAX_SAME_HEIGHT
+        }?.style
+        // A bubble shaded from one colour to another is drawn on over its letters, not painted flat
+        val gradient = letters?.takeIf { lightBubble && !it.flat && it.whole >= MIN_GRADIENT_WHOLE }
+        return Plan(region, text, font, bubble, ink, size, lineHeight, locale, style = style, gradient = gradient)
+    }
+
+    /** Letters found on a plain background of any colour: set where they were, as big as they were. */
+    private fun plainPlan(
+        region: TextRegion,
+        text: String,
+        font: TextMeasurer,
+        letters: PlainLetters.Letters,
+        upper: Boolean,
+        locale: Locale,
+    ): Plan {
+        val ink = InkMeasure.Ink(letters.box, letters.lines, letters.letterHeight, letters.pitch, letters.fill)
+        val cjkSource = LetterCase.isCjk(region.text)
+        val originalUpper = LetterCase.upper(region.text, region.type)
+        val measuredCap = when {
+            cjkSource -> letters.letterHeight * CJK_TO_CAP
+            originalUpper -> letters.letterHeight
+            else -> letters.letterHeight * font.capHeight / font.xHeight
+        }
+        // Art read as letters gives a size far from what fits the box
+        val roughCap = roughCap(region, cjkSource)
+        val cap = if (roughCap == null ||
+            measuredCap in roughCap * MIN_TRUST..roughCap * MAX_TRUST
+        ) {
+            measuredCap
+        } else {
+            roughCap
+        }
+        val size = if (LetterCase.isCjk(text)) cap / CJK_CAP else cap / font.capHeight
+        val measured = letters.pitch?.takeIf { !cjkSource && originalUpper == upper }?.let { pitch ->
+            pitch / letters.letterHeight * (if (upper) font.capHeight else font.xHeight)
+        }
+        val lineHeight = (measured ?: font.lineHeight * NATURAL_SPACING).coerceIn(MIN_LINE_HEIGHT, MAX_LINE_HEIGHT)
+        return Plan(region, text, font, null, ink, size, lineHeight, locale, plain = letters, style = letters.style)
     }
 
     /** Narration whose letters on the art were found: set as text on the art, as big as they were. */
@@ -490,6 +589,22 @@ object PageLettering {
                     if (widest > 0) target = minOf(target, region.box.width * SFX_WIDTH_FILL / widest)
                 }
             }
+            plan.plain != null -> {
+                // Where the original was, as wide as it and a little wider, within its window or box
+                val letters = plan.plain
+                val base = letters.box
+                val grow = (base.width * ART_WIDEN).toInt()
+                val rise = base.height / 2
+                room = Room.of(
+                    Box(
+                        maxOf(base.left - grow, letters.room.left, 0),
+                        maxOf(base.top - rise, letters.room.top, 0),
+                        minOf(base.right + grow, letters.room.right, width),
+                        minOf(base.bottom + rise, letters.room.bottom, height),
+                    ),
+                )
+                style = TextBlockLayout.Style(font, plan.lineHeight, 0f, 0f)
+            }
             onArt || bubble?.room == null -> {
                 // Text on the art (or nothing found around it): about where and as wide as the original
                 val base = ink?.box ?: region.box
@@ -525,23 +640,25 @@ object PageLettering {
         } else {
             room.excluding(others, anchorX ?: (region.box.left + region.box.right) / 2f, OTHERS_MARGIN)
         }
-        val block =
-            (
-                if (ownRoom !==
-                    room
-                ) {
-                    TextBlockLayout.place(pieces, ownRoom, anchor, target, minSize, style, anchorX)
-                } else {
-                    null
-                }
-                )
-                ?: TextBlockLayout.place(pieces, room, anchor, target, minSize, style, anchorX)
-                ?: fallback(plan, room, anchor, minSize, height, style)
-                ?: return null
+        // Beside another text in the same bubble a little smaller rather than over it: only then
+        // the whole bubble
+        val beside = if (ownRoom !== room) {
+            TextBlockLayout.place(pieces, ownRoom, anchor, target, minSize, style, anchorX)
+                ?: fallback(plan, ownRoom, anchor, minSize, height, style, inShape = true)
+        } else {
+            null
+        }
+        val block = beside
+            ?: TextBlockLayout.place(pieces, room, anchor, target, minSize, style, anchorX)
+            ?: fallback(plan, room, anchor, minSize, height, style)
+            ?: return null
 
         val background = bubble?.background ?: WHITE
+        val skew = plan.style?.slant ?: 0f
+        val thicken = plan.style?.let { thickenFor(it, region, font) } ?: 0f
         return when {
             sfx -> Lettering(region, block, font, BLACK, WHITE, SFX_OUTLINE)
+            plan.plain != null -> plainLettering(region, block, font, plan.plain, skew, thicken)
             onArt -> Lettering(
                 region,
                 block,
@@ -550,7 +667,8 @@ object PageLettering {
                 outline = DARK_OUTLINE,
                 outlineWidth = ART_OUTLINE,
             )
-            BubbleEraser.luminance(background) < DARK_BACKGROUND -> Lettering(region, block, font, WHITE, null)
+            BubbleEraser.luminance(background) < DARK_BACKGROUND ->
+                Lettering(region, block, font, WHITE, null, skew = skew, thicken = thicken)
             // The original's ink colour (a scan's black is rarely pure black)
             else -> Lettering(
                 region,
@@ -558,8 +676,54 @@ object PageLettering {
                 font,
                 ink?.color?.takeIf { BubbleEraser.luminance(it) < DARK_FILL } ?: BLACK,
                 null,
+                skew = skew,
+                thicken = thicken,
             )
         }
+    }
+
+    /**
+     * Letters on a plain background drawn as the original's: its fill, its outline as thick, its
+     * glow, its lean. Colours too close to the background to read get black or white.
+     */
+    private fun plainLettering(
+        region: TextRegion,
+        block: TextBlock,
+        font: TextMeasurer,
+        letters: PlainLetters.Letters,
+        skew: Float,
+        thicken: Float,
+    ): Lettering {
+        val readable = PlainLetters.distance(letters.fill, letters.background) >= MIN_READABLE
+        val fill = when {
+            readable -> letters.fill
+            BubbleEraser.luminance(letters.background) < DARK_BACKGROUND -> WHITE
+            else -> BLACK
+        }
+        return Lettering(
+            region,
+            block,
+            font,
+            fill = fill,
+            outline = letters.edge?.takeIf { readable },
+            // Drawn on both sides of the letters' outline, half of it shows
+            outlineWidth = (2 * letters.edgeWidth / block.size).coerceIn(MIN_TEXT_EDGE, MAX_TEXT_EDGE),
+            thicken = thicken,
+            skew = skew,
+            glow = letters.glow?.takeIf { readable },
+            glowRadius = (letters.glowWidth / block.size).coerceAtMost(MAX_GLOW),
+        )
+    }
+
+    /**
+     * How much bolder than the lettering font the original's capitals are (strokes measured the same
+     * way on both); lowercase and CJK letters are not compared: their height is another measure.
+     */
+    private fun thickenFor(style: LetterStyle.Style, region: TextRegion, font: TextMeasurer): Float {
+        if (LetterCase.isCjk(region.text) || !LetterCase.upper(region.text, region.type)) return 0f
+        if (style.stroke < FONT_REGULAR_STROKE * BOLDER) return 0f
+        // Strokes are measured in capital heights, the extra stroke is drawn in sizes
+        return ((style.stroke - FONT_REGULAR_STROKE) * font.capHeight).coerceIn(0f, MAX_TEXT_THICKEN)
     }
 
     /**
@@ -705,6 +869,8 @@ object PageLettering {
         size: Float,
         height: Int,
         style: TextBlockLayout.Style,
+        /** Only smaller in the room's shape, never out of it. */
+        inShape: Boolean = false,
     ): TextBlock? {
         if (plan.region.type == RegionType.Sfx) {
             // A sound in one piece, a word per line, even if it runs a little out of its box
@@ -747,6 +913,7 @@ object PageLettering {
             },
         )
             ?.let { return it }
+        if (inShape) return null
         // Then out of the shape (the bubble's width, any height); only then a word split by letters
         val tall = Room.of(Box(left, 0, right + 1, height))
         val loose = TextBlockLayout.Style(style.measurer, style.lineHeight, 0f, 0f)
@@ -914,6 +1081,33 @@ object PageLettering {
     private const val SFX_OUTLINE = 0.24f
     private const val SFX_OVER = 0.15f
     private const val SFX_WIDTH_FILL = 1.1f
+
+    /** Letters on a plain background are erased only when this share of them (or more) was found. */
+    private const val MIN_WHOLE = 0.75f
+
+    /** ...and a shaded bubble's letters drawn over only when nearly all were. */
+    private const val MIN_GRADIENT_WHOLE = 0.9f
+
+    /** The style of letters this close in height to the ones measured in the bubble is theirs. */
+    private const val MIN_SAME_HEIGHT = 0.6f
+    private const val MAX_SAME_HEIGHT = 1.6f
+
+    /** Letters this far in colour (0–441) from their background are readable in their own colour. */
+    private const val MIN_READABLE = 80f
+
+    /** An outline copied from the original: at least and at most this share of the size. */
+    private const val MIN_TEXT_EDGE = 0.04f
+    private const val MAX_TEXT_EDGE = 0.3f
+
+    /** A glow reaches at most this share of the size. */
+    private const val MAX_GLOW = 0.5f
+
+    /** The regular lettering font's stroke as a share of its capitals' height (as [LetterStyle] measures). */
+    private const val FONT_REGULAR_STROKE = 0.18f
+
+    /** Originals this much bolder than the font are drawn bolder, by at most [MAX_TEXT_THICKEN] of the size. */
+    private const val BOLDER = 1.25f
+    private const val MAX_TEXT_THICKEN = 0.08f
 
     private const val LIGHT_FILL = 190
     private const val DARK_FILL = 110
