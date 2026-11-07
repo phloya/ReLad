@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PLUS: Re:Lad panel-by-panel reading (see plus/HOOKS.md) -->
+<resources>
+    <!-- Tag on a reader's pager or recycler view: its panel controller lives as long as the view -->
+    <item name="plus_panels_controller" type="id" />
+</resources>

@@ -334,7 +334,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
      * Moves to the page at the right.
      */
     protected open fun moveRight() {
-        // PLUS --> Re:Lad panel-by-panel reading goes to the next panel before the next page
+        // PLUS --> Re:Lad panel-by-panel reading moves between panels before turning the page
         if (plus.app.panels.PlusPanels.onPagerMove(this, toRight = true)) return
         // PLUS <--
         if (pager.currentItem != adapter.count - 1) {
@@ -351,7 +351,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
      * Moves to the page at the left.
      */
     protected open fun moveLeft() {
-        // PLUS --> Re:Lad panel-by-panel reading goes to the previous panel before the previous page
+        // PLUS --> Re:Lad panel-by-panel reading moves between panels before turning the page
         if (plus.app.panels.PlusPanels.onPagerMove(this, toRight = false)) return
         // PLUS <--
         if (pager.currentItem != 0) {

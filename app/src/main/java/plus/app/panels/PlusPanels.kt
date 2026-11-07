@@ -35,8 +35,11 @@ import java.util.WeakHashMap
  */
 object PlusPanels {
 
-    private val pagers: MutableMap<PagerViewer, PagerPanels> = Collections.synchronizedMap(WeakHashMap())
-    private val webtoons: MutableMap<WebtoonViewer, WebtoonPanels> = Collections.synchronizedMap(WeakHashMap())
+    // Each controller hangs on its viewer's view (a tag), so it goes away with the reader. These
+    // sets only find the live ones for switching; they hold them weakly
+    private val pagers: MutableSet<PagerPanels> = Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
+    private val webtoons: MutableSet<WebtoonPanels> =
+        Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -77,12 +80,17 @@ object PlusPanels {
 
     /** Swipes in panel mode go to the next or previous panel. [dispatch] is the pager's own handling. */
     fun dispatchTouch(pager: Pager, event: MotionEvent, dispatch: (MotionEvent) -> Boolean): Boolean {
-        val controller = synchronized(pagers) { pagers.values.firstOrNull { it.pager === pager } }
-            ?: return dispatch(event)
+        val controller = pager.getTag(R.id.plus_panels_controller) as? PagerPanels ?: return dispatch(event)
         return controller.dispatchTouch(event, dispatch)
     }
 
-    private fun pager(viewer: PagerViewer) = synchronized(pagers) { pagers.getOrPut(viewer) { PagerPanels(viewer) } }
+    private fun pager(viewer: PagerViewer): PagerPanels = synchronized(pagers) {
+        viewer.pager.getTag(R.id.plus_panels_controller) as? PagerPanels
+            ?: PagerPanels(viewer).also {
+                viewer.pager.setTag(R.id.plus_panels_controller, it)
+                pagers += it
+            }
+    }
 
     // ---- Strip modes (webtoon, continuous vertical) ----
 
@@ -97,8 +105,13 @@ object PlusPanels {
         return webtoon(viewer).scroll(down)
     }
 
-    private fun webtoon(viewer: WebtoonViewer) =
-        synchronized(webtoons) { webtoons.getOrPut(viewer) { WebtoonPanels(viewer) } }
+    private fun webtoon(viewer: WebtoonViewer): WebtoonPanels = synchronized(webtoons) {
+        viewer.recycler.getTag(R.id.plus_panels_controller) as? WebtoonPanels
+            ?: WebtoonPanels(viewer).also {
+                viewer.recycler.setTag(R.id.plus_panels_controller, it)
+                webtoons += it
+            }
+    }
 
     // ---- Switching ----
 
@@ -118,8 +131,8 @@ object PlusPanels {
     /** Reloads the open readers' pages, so they start or stop finding panels. */
     fun onSwitched() {
         main.post {
-            synchronized(pagers) { pagers.values.toList() }.forEach { it.onSwitched() }
-            synchronized(webtoons) { webtoons.values.toList() }.forEach { it.onSwitched() }
+            synchronized(pagers) { pagers.toList() }.forEach { it.onSwitched() }
+            synchronized(webtoons) { webtoons.toList() }.forEach { it.onSwitched() }
         }
     }
 

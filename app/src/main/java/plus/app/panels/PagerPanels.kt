@@ -67,7 +67,6 @@ internal class PagerPanels(private val viewer: PagerViewer) {
 
         /** The stop shown, -1 before the first one. */
         var index = -1
-        var overlay: PanelFocusView? = null
         var watchesLayout = false
     }
 
@@ -196,7 +195,9 @@ internal class PagerPanels(private val viewer: PagerViewer) {
     fun onSwitched() {
         enteredForward = true
         synchronized(states) {
-            states.forEach { (holder, state) -> state.overlay?.let(holder::removeView) }
+            states.keys.forEach { holder ->
+                holder.children.filterIsInstance<PanelFocusView>().toList().forEach(holder::removeView)
+            }
             states.clear()
         }
         viewer.config.imagePropertyChangedListener?.invoke()
@@ -304,10 +305,10 @@ internal class PagerPanels(private val viewer: PagerViewer) {
         } else {
             image.setScaleAndCenter(stop.scale, center)
         }
-        val overlay = state.overlay ?: PanelFocusView(holder.context, image).also {
-            holder.addView(it, MATCH_PARENT, MATCH_PARENT)
-            state.overlay = it
-        }
+        // Found among the holder's children, not kept in the state: the state map holds holders
+        // weakly, and a value pointing back into the holder would keep it alive
+        val overlay = holder.children.filterIsInstance<PanelFocusView>().firstOrNull()
+            ?: PanelFocusView(holder.context, image).also { holder.addView(it, MATCH_PARENT, MATCH_PARENT) }
         overlay.show(stop.focus?.let { RectF(it.left, it.top, it.right, it.bottom) }, prefs.dimOthers.get(), smooth)
     }
 
