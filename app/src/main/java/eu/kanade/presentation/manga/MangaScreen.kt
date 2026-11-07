@@ -318,6 +318,7 @@ private fun MangaScreenSmallImpl(
                 onMarkPreviousAsReadClicked = onMarkPreviousAsReadClicked,
                 onDownloadChapter = onDownloadChapter,
                 onMultiDeleteClicked = onMultiDeleteClicked,
+                manga = state.manga, // PLUS
                 fillFraction = 1f,
             )
         },
@@ -545,6 +546,7 @@ fun MangaScreenLargeImpl(
                 onMarkPreviousAsReadClicked = onMarkPreviousAsReadClicked,
                 onDownloadChapter = onDownloadChapter,
                 onMultiDeleteClicked = onMultiDeleteClicked,
+                manga = state.manga, // PLUS
                 fillFraction = 0.5f,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -678,9 +680,11 @@ private fun SharedMangaBottomActionMenu(
     onMarkPreviousAsReadClicked: (Chapter) -> Unit,
     onDownloadChapter: ((List<ChapterList.Item>, ChapterDownloadAction) -> Unit)?,
     onMultiDeleteClicked: (List<Chapter>) -> Unit,
+    manga: Manga, // PLUS
     fillFraction: Float,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current // PLUS
     MangaBottomActionMenu(
         visible = selected.isNotEmpty(),
         modifier = modifier.fillMaxWidth(fillFraction),
@@ -709,6 +713,11 @@ private fun SharedMangaBottomActionMenu(
         }.takeIf {
             selected.fastAny { it.downloadState == Download.State.DOWNLOADED }
         },
+        // PLUS -->
+        onTranslateClicked = {
+            plus.app.translate.ChapterTranslation.start(context, manga, selected.fastMap { it.chapter })
+        }.takeIf { plus.app.translate.ChapterTranslation.isAvailable(context) },
+        // PLUS <--
     )
 }
 

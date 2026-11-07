@@ -52,6 +52,14 @@ Workflow Mihon `build.yml` (сборка, тесты, стиль кода на �
 | `app/.../reader/viewer/pager/PagerPageHolder.kt` | `page.statusFlow` → `PlusReader.statusFlow(...)`, `page.stream` → `PlusReader.stream(...)` | Страница проходит через конвейер Re:Lad (перевод, улучшение, раскраска) и перезагружается, когда готова обработанная версия |
 | `app/.../reader/viewer/webtoon/WebtoonPageHolder.kt` | То же для режима ленты | То же |
 
+## Перевод страниц (ветка `relad/translate`)
+
+| Файл Mihon | Что изменено | Зачем |
+|---|---|---|
+| `app/.../mihon/app/di/AppGraph.kt` | Поле `downloadProvider` | Перевод глав из меню загружает страницы теми же загрузчиками, что и читалка (`ChapterLoader`), а ему нужен `DownloadProvider` |
+| `app/.../presentation/manga/components/MangaBottomActionMenu.kt` | Параметр `onTranslateClicked` и кнопка «Перевести» (значок-глобус) в меню выделенных глав | Перевести выбранные главы в фоне, не открывая их |
+| `app/.../presentation/manga/MangaScreen.kt` → `SharedMangaBottomActionMenu` | Параметр `manga`, кнопка вызывает `ChapterTranslation.start` | То же |
+
 ## Наши файлы (конфликтов с Mihon не бывает)
 
 | Путь | Что это |
