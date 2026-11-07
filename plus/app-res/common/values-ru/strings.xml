@@ -22,7 +22,7 @@
     <string name="plus_feature_pipeline_check_summary">Рисует красную рамку на каждой странице, чтобы проверить, что страницы проходят через Re:Lad</string>
     <string name="plus_feature_enabled">Включить</string>
     <string name="plus_cache_clear">Очистить обработанные страницы</string>
-    <string name="plus_cache_summary">Занято: %1$s</string>
+    <string name="plus_cache_summary">Занято: %1$s. Переводы сохранятся: страницы только перерисуются</string>
     <string name="plus_cache_cleared">Обработанные страницы удалены</string>
     <string name="plus_error">Re:Lad: %1$s</string>
 

@@ -15,6 +15,7 @@ import mihon.icons.custommaterialsymbols.rounded.CropOff
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.Crop
 import mihon.icons.materialsymbols.rounded.Settings
+import plus.app.reader.PlusReaderButton
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 
@@ -55,6 +56,9 @@ fun ReaderBottomBar(
                 contentDescription = stringResource(MR.strings.pref_crop_borders),
             )
         }
+
+        // PLUS: original or Re:Lad's version (translated), see plus/HOOKS.md
+        PlusReaderButton()
 
         IconButton(onClick = onClickSettings) {
             Icon(

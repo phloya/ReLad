@@ -92,6 +92,34 @@ class PageProcessingEngine(
     }
 
     /**
+     * The reader asked again (Retry, or Translate on chapters that stopped): pages that failed are
+     * tried at once instead of after [RETRY_AFTER_MS], and the reader shows them again.
+     */
+    fun retryFailed() = onSettingsChanged()
+
+    /**
+     * Makes this page again from the step [processorId] on (Translate this page again): that step's
+     * and later steps' cached images go, and the step forgets what it keeps of the page itself.
+     * Earlier steps stay. The next [resolve] or [prepare] then runs the step anew.
+     */
+    fun redo(original: ByteArray, context: PageContext, processorId: String) {
+        val steps = activeSteps(sha256(original), context)
+        val index = steps.indexOfFirst { it.processor.id == processorId }
+        if (index < 0) return
+        // The step's input: the earlier step's cached image (if it was dropped, that step makes a
+        // new one, and a kept result of this step for the old input no longer matches anyway)
+        val input = if (index == 0) original else cache.get(steps[index - 1].key)
+        if (input != null) steps[index].processor.forget(input, context)
+        steps.drop(index).forEach { cache.remove(it.key) }
+        synchronized(lock) {
+            steps.drop(index).forEach {
+                failedAt.remove(it.key)
+                failedWith.remove(it.key)
+            }
+        }
+    }
+
+    /**
      * Returns the most processed version of [original] that is already cached and schedules
      * the missing steps. Cheap apart from hashing; call it from a background thread.
      */

@@ -48,28 +48,32 @@ object ChapterTranslation {
 
     /** Chapters being translated now: pressing Translate again doesn't start them twice. */
     private val running = ConcurrentHashMap.newKeySet<Long>()
-    private val notificationIds = AtomicInteger(NOTIFICATION_BASE)
 
     fun isAvailable(context: Context): Boolean {
         val graph = Plus.graph(context)
         return graph.isEnabled(TranslateFeature)
     }
 
-    fun start(context: Context, manga: Manga, chapters: List<Chapter>) {
+    /** [fresh]: translate again (Translate again in the reader), not only the pages not done yet. */
+    fun start(context: Context, manga: Manga, chapters: List<Chapter>, fresh: Boolean = false) {
         val app = context.applicationContext
         val graph = Plus.graph(app)
         val todo = chapters
             .sortedWith(compareBy<Chapter> { it.chapterNumber }.thenByDescending { it.sourceOrder })
             .filter { running.add(it.id) }
         if (todo.isEmpty()) return
+        // Pressed again after a stop (no credits, the model refused...): pages that failed a moment
+        // ago are tried again now, pages already done come from the kept translations
+        graph.engine.retryFailed()
         Toast.makeText(app, app.getString(R.string.plus_translate_started, todo.size), Toast.LENGTH_SHORT).show()
         graph.scope.launch(Dispatchers.IO) {
-            val notifier = Notifier(app, manga.title, notificationIds.incrementAndGet())
+            // One notice per title: pressing Translate again after a stop replaces the stop notice
+            val notifier = Notifier(app, manga.title, NOTIFICATION_BASE + (manga.id and TITLE_BITS).toInt())
             var translated = 0
             var error: Throwable? = null
             try {
                 for ((i, chapter) in todo.withIndex()) {
-                    val failure = translate(app, graph, manga, chapter) { done, total ->
+                    val failure = translate(app, graph, manga, chapter, fresh) { done, total ->
                         notifier.progress(chapter.name, i + 1, todo.size, done, total)
                     }
                     if (failure == null) translated++ else error = failure
@@ -97,6 +101,7 @@ object ChapterTranslation {
         graph: PlusGraph,
         manga: Manga,
         chapter: Chapter,
+        fresh: Boolean,
         progress: (done: Int, total: Int) -> Unit,
     ): Throwable? {
         val app = context.appGraph
@@ -126,7 +131,7 @@ object ChapterTranslation {
                     gate.acquire()
                     launch {
                         try {
-                            when (val state = translatePage(graph, manga, chapter, source.lang, page)) {
+                            when (val state = translatePage(graph, manga, chapter, source.lang, page, fresh)) {
                                 PageState.Done -> progress(done.incrementAndGet(), pages.size)
                                 is PageState.Failed -> error = state.error
                                 PageState.Waiting -> Unit
@@ -154,6 +159,7 @@ object ChapterTranslation {
         chapter: Chapter,
         sourceLanguage: String,
         page: ReaderPage,
+        fresh: Boolean,
     ): PageState {
         // Online pages: the loader downloads them in order; a page that failed to download is skipped
         val status = page.statusFlow.first { it == Page.State.Ready || it is Page.State.Error }
@@ -173,6 +179,7 @@ object ChapterTranslation {
             mangaGenres = manga.genre.orEmpty(),
         )
         val hash = PageProcessingEngine.sha256(bytes)
+        if (fresh) graph.engine.redo(bytes, context, TranslateFeature.id)
         graph.engine.prepare(bytes, context)
         // Being translated already (the reader has it open): wait for it to finish
         var state = graph.engine.state(hash, context)
@@ -226,7 +233,8 @@ object ChapterTranslation {
 
         fun finish(translated: Int, chapters: Int, error: Throwable?) {
             val text = if (error != null) {
-                context.getString(R.string.plus_status_stopped, PlusReaderStatus.reason(context, error))
+                context.getString(R.string.plus_status_stopped, PlusReaderStatus.reason(context, error)) +
+                    "\n" + context.getString(R.string.plus_translate_continue_hint)
             } else {
                 context.getString(R.string.plus_translate_finished, translated, chapters)
             }
@@ -255,6 +263,7 @@ object ChapterTranslation {
 
     private const val CHANNEL = "relad_translate"
     private const val NOTIFICATION_BASE = 0x7E1A0
+    private const val TITLE_BITS = 0xFFFL
     private const val AT_ONCE = 6
     private const val POLL_MS = 1_000L
     private const val MAX_WAIT_MS = 180_000L

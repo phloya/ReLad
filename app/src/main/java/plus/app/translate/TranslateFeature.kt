@@ -1,9 +1,16 @@
 package plus.app.translate
 
+import android.text.format.Formatter
+import android.widget.Toast
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import cafe.adriel.voyager.navigator.LocalNavigator
@@ -21,6 +28,7 @@ import plus.core.pipeline.PageProcessor
 import plus.translate.LetteringFonts
 import plus.translate.PageTranslator
 import plus.translate.TargetLanguage
+import plus.translate.TranslationStore
 import plus.translate.bible.BibleStore
 import tachiyomi.presentation.core.util.collectAsState
 import java.io.File
@@ -43,6 +51,7 @@ object TranslateFeature : PlusFeature {
         clientFor = graph::aiClient,
         bibles = bibles(graph),
         fonts = { LetteringFonts.load(graph.context.assets) },
+        translations = translations(graph),
     )
 
     override fun settingsScreen(): Screen = TranslateSettingsScreen()
@@ -52,6 +61,15 @@ object TranslateFeature : PlusFeature {
 
     @Volatile
     private var bibleStore: BibleStore? = null
+
+    @Volatile
+    private var translationStore: TranslationStore? = null
+
+    /** Pages' translations, kept for good in app files: the cache only holds the drawn images. */
+    fun translations(graph: PlusGraph): TranslationStore = translationStore ?: synchronized(this) {
+        translationStore ?: TranslationStore(File(graph.context.filesDir, "relad/translations"))
+            .also { translationStore = it }
+    }
 
     /** Each title's notes for the translator; in app files (not cache), they must survive a cache clear. */
     fun bibles(graph: PlusGraph): BibleStore = bibleStore ?: synchronized(this) {
@@ -84,6 +102,32 @@ class TranslateSettingsScreen : Screen() {
         val providersJson by graph.preferences.aiProvidersJson.collectAsState()
         val providers = remember(providersJson) { graph.preferences.aiProviders() }
         val providerId by prefs.provider.collectAsState()
+
+        val store = remember { TranslateFeature.translations(graph) }
+        var saved by remember { mutableStateOf(store.count() to store.sizeBytes()) }
+        var confirmDelete by remember { mutableStateOf(false) }
+        if (confirmDelete) {
+            AlertDialog(
+                onDismissRequest = { confirmDelete = false },
+                text = { Text(stringResource(R.string.plus_translate_saved_confirm)) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirmDelete = false
+                            store.clear()
+                            // The drawn pages go too, or they would still show the deleted translations
+                            graph.pageCache.clear()
+                            graph.engine.onSettingsChanged()
+                            saved = store.count() to store.sizeBytes()
+                            Toast.makeText(context, R.string.plus_translate_saved_deleted, Toast.LENGTH_SHORT).show()
+                        },
+                    ) { Text(stringResource(R.string.plus_translate_saved_delete)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmDelete = false }) { Text(stringResource(android.R.string.cancel)) }
+                },
+            )
+        }
 
         Scaffold(
             topBar = {
@@ -129,6 +173,15 @@ class TranslateSettingsScreen : Screen() {
                         preference = prefs.soundEffects,
                         title = stringResource(R.string.plus_translate_sfx),
                         subtitle = stringResource(R.string.plus_translate_sfx_summary),
+                    ),
+                    Preference.PreferenceItem.TextPreference(
+                        title = stringResource(R.string.plus_translate_saved),
+                        subtitle = stringResource(
+                            R.string.plus_translate_saved_summary,
+                            saved.first,
+                            Formatter.formatShortFileSize(context, saved.second),
+                        ),
+                        onClick = { confirmDelete = true },
                     ),
                     Preference.PreferenceItem.InfoPreference(stringResource(R.string.plus_translate_how)),
                 ),
