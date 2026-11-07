@@ -167,7 +167,9 @@ object BubbleEraser {
         } else {
             null
         }
-        return Result(erased, background, enclosed, rows)
+        // An open bubble's light area may run on into the art: the text goes only where we painted
+        val forText = if (whole) erased else intersect(paint, erased) ?: erased
+        return Result(forText, background, enclosed, rows)
     }
 
     /** Light pixels of [box] inside the search [area]. */
