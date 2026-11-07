@@ -36,6 +36,13 @@ CANNED = {
     ],
 }
 
+# What a real model reports besides the regions (prompt v2): new names and terms, the page summary
+FINDINGS = {
+    "new_characters": [{"original": "ハル", "name": "Хару", "gender": "male", "speech": "бодрый, на ты со всеми"}],
+    "new_terms": [{"original": "天気", "translation": "погода", "kind": "other", "note": "test term"}],
+    "summary": "Test page: friends meet in the morning.",
+}
+
 by_hash = {}
 for name, regions in CANNED.items():
     with open(os.path.join(pages_dir, name), "rb") as f:
@@ -48,8 +55,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         auth = self.headers.get("Authorization", "")
         images = []
         prompt = ""
+        system = ""
         for message in body.get("messages", []):
             content = message.get("content")
+            if message.get("role") == "system" and isinstance(content, str):
+                system += content
             if isinstance(content, list):
                 for part in content:
                     if part.get("type") == "image_url":
@@ -63,10 +73,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         match = by_hash.get(digest)
         print(f"model={body.get('model')} auth={'set' if auth.startswith('Bearer ') else 'missing'} "
               f"images={len(images)} page={match[0] if match else digest} prompt={prompt[:60]!r}", flush=True)
-        if not images:
+        if "# Characters" in system or "# Glossary" in system:
+            print("  system prompt carries the title's notes: " +
+                  ", ".join(l for l in system.splitlines() if l.startswith("- ")), flush=True)
+        if not images and "fixes" in prompt:
+            text = '{"fixes":[]}'
+        elif not images:
             text = "OK"
         elif match:
-            text = "Here is the translation:\n```json\n" + json.dumps({"regions": match[1]}, ensure_ascii=False) + "\n```"
+            answer = dict(FINDINGS, regions=match[1])
+            text = "Here is the translation:\n```json\n" + json.dumps(answer, ensure_ascii=False) + "\n```"
         else:
             text = '{"regions":[]}'
         answer = {"choices": [{"message": {"role": "assistant", "content": text}, "finish_reason": "stop"}]}

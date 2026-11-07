@@ -129,6 +129,29 @@ class AiClientsTest {
     }
 
     @Test
+    fun `Gemini image output asks for images and the wanted shape`() = runTest {
+        val server = FakeServer(
+            body = """{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"AQID"}}]}}]}""",
+        )
+        val client = AiClients.create(config(AiProviderType.Gemini), "g", server.client)
+
+        val answer = client.send(
+            AiRequest(
+                null,
+                "Colorize.",
+                listOf(AiImage(png, "image/png")),
+                imageOutput = true,
+                imageAspectRatio = "2:3",
+            ),
+        )
+
+        answer.images.single().bytes.toList() shouldBe listOf<Byte>(1, 2, 3)
+        val config = server.json["generationConfig"]!!.jsonObject
+        config["responseModalities"]!!.jsonArray.map { it.jsonPrimitive.content } shouldBe listOf("TEXT", "IMAGE")
+        config["imageConfig"]!!.jsonObject["aspectRatio"]!!.jsonPrimitive.content shouldBe "2:3"
+    }
+
+    @Test
     fun `Gemini blocked prompt is a readable error`() = runTest {
         val server = FakeServer(body = """{"promptFeedback":{"blockReason":"SAFETY"}}""")
         val client = AiClients.create(config(AiProviderType.Gemini), "g", server.client)
@@ -194,6 +217,82 @@ class AiClientsTest {
 
         shouldThrow<AiException> { client.send(AiRequest(null, "p", imageOutput = true)) }
             .kind shouldBe AiException.Kind.Unsupported
+    }
+
+    @Test
+    fun `the fixed beginning of the system prompt is marked for caching on Claude and joined elsewhere`() = runTest {
+        val cached = AiRequest(system = "This title's glossary", prompt = "p", stableSystem = "Fixed rules")
+
+        val anthropic = FakeServer(body = """{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}""")
+        AiClients.create(config(AiProviderType.Anthropic), "k", anthropic.client).send(cached)
+        val blocks = anthropic.json["system"]!!.jsonArray.map { it.jsonObject }
+        blocks.map { it["text"]!!.jsonPrimitive.content } shouldBe listOf("Fixed rules", "This title's glossary")
+        blocks.forEach { it["cache_control"]!!.jsonObject["type"]!!.jsonPrimitive.content shouldBe "ephemeral" }
+
+        val openAi = FakeServer(body = """{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}""")
+        AiClients.create(config(AiProviderType.OpenAiCompatible), "k", openAi.client).send(cached)
+        openAi.json["messages"]!!.jsonArray[0].jsonObject["content"]!!.jsonPrimitive.content shouldBe
+            "Fixed rules\n\nThis title's glossary"
+
+        val gemini = FakeServer(body = """{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}""")
+        AiClients.create(config(AiProviderType.Gemini), "k", gemini.client).send(cached)
+        gemini.json["systemInstruction"]!!.jsonObject["parts"]!!.jsonArray[0].jsonObject["text"]!!
+            .jsonPrimitive.content shouldBe "Fixed rules\n\nThis title's glossary"
+    }
+
+    @Test
+    fun `low reasoning is asked for only where the model takes it`() = runTest {
+        val low = AiRequest(system = null, prompt = "p", effort = AiEffort.Low)
+        val claudeAnswer = """{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}"""
+        val geminiAnswer = """{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}"""
+
+        val sonnet = FakeServer(body = claudeAnswer)
+        AiClients.create(config(AiProviderType.Anthropic).copy(model = "claude-sonnet-5-5"), "k", sonnet.client)
+            .send(low)
+        sonnet.json["output_config"]!!.jsonObject["effort"]!!.jsonPrimitive.content shouldBe "low"
+
+        val oldClaude = FakeServer(body = claudeAnswer)
+        AiClients.create(config(AiProviderType.Anthropic).copy(model = "claude-haiku-4-5"), "k", oldClaude.client)
+            .send(low)
+        oldClaude.json.containsKey("output_config") shouldBe false
+
+        val gemini3 = FakeServer(body = geminiAnswer)
+        AiClients.create(config(AiProviderType.Gemini).copy(model = "gemini-3.1-flash-lite"), "k", gemini3.client)
+            .send(low)
+        gemini3.json["generationConfig"]!!.jsonObject["thinkingConfig"]!!.jsonObject["thinkingLevel"]!!
+            .jsonPrimitive.content shouldBe "low"
+
+        val gemini25 = FakeServer(body = geminiAnswer)
+        AiClients.create(config(AiProviderType.Gemini).copy(model = "gemini-2.5-flash-lite"), "k", gemini25.client)
+            .send(low)
+        gemini25.json["generationConfig"]!!.jsonObject.containsKey("thinkingConfig") shouldBe false
+    }
+
+    @Test
+    fun `token usage is read from all three formats`() = runTest {
+        val anthropic = FakeServer(
+            body = """{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn",
+                "usage":{"input_tokens":100,"cache_creation_input_tokens":2000,
+                "cache_read_input_tokens":3000,"output_tokens":400}}""",
+        )
+        AiClients.create(config(AiProviderType.Anthropic), "k", anthropic.client).send(request).usage shouldBe
+            AiUsage(inputTokens = 5100, cachedInputTokens = 3000, cacheWriteTokens = 2000, outputTokens = 400)
+
+        val gemini = FakeServer(
+            body = """{"candidates":[{"content":{"parts":[{"text":"ok"}]}}],
+                "usageMetadata":{"promptTokenCount":1800,"cachedContentTokenCount":1000,
+                "candidatesTokenCount":300,"thoughtsTokenCount":200}}""",
+        )
+        AiClients.create(config(AiProviderType.Gemini), "k", gemini.client).send(request).usage shouldBe
+            AiUsage(inputTokens = 1800, cachedInputTokens = 1000, outputTokens = 500)
+
+        val openRouter = FakeServer(
+            body = """{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],
+                "usage":{"prompt_tokens":1500,"completion_tokens":350,
+                "prompt_tokens_details":{"cached_tokens":1024},"cost":0.0021}}""",
+        )
+        AiClients.create(config(AiProviderType.OpenAiCompatible), "k", openRouter.client).send(request).usage shouldBe
+            AiUsage(inputTokens = 1500, cachedInputTokens = 1024, outputTokens = 350, reportedCostUsd = 0.0021)
     }
 
     @Test

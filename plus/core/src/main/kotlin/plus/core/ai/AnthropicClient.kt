@@ -7,6 +7,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -39,7 +40,23 @@ class AnthropicClient(
             put("model", config.model)
             put("max_tokens", request.maxOutputTokens)
             if (fallback) put("fallbacks", "default")
-            if (request.system != null) put("system", request.system)
+            if (request.effort != null && config.model in EFFORT_MODELS) {
+                putJsonObject("output_config") { put("effort", request.effort.wire) }
+            }
+            if (request.stableSystem != null) {
+                // Cached up to each marker: the fixed part, then the fixed part plus the rest
+                putJsonArray("system") {
+                    listOfNotNull(request.stableSystem, request.system).forEach { text ->
+                        addJsonObject {
+                            put("type", "text")
+                            put("text", text)
+                            putJsonObject("cache_control") { put("type", "ephemeral") }
+                        }
+                    }
+                }
+            } else if (request.system != null) {
+                put("system", request.system)
+            }
             putJsonArray("messages") {
                 addJsonObject {
                     put("role", "user")
@@ -93,7 +110,21 @@ class AnthropicClient(
                 "${config.name}: empty answer (${body["stop_reason"]?.jsonPrimitive?.contentOrNull})",
                 AiException.Kind.BadResponse,
             )
-        return AiResponse(text, emptyList())
+        return AiResponse(text, emptyList(), usage(body))
+    }
+
+    /** Anthropic reports uncached input, cache writes and cache reads separately. */
+    private fun usage(body: JsonObject): AiUsage? {
+        val usage = body["usage"] as? JsonObject ?: return null
+        fun n(key: String) = usage[key]?.jsonPrimitive?.longOrNull ?: 0L
+        val write = n("cache_creation_input_tokens")
+        val read = n("cache_read_input_tokens")
+        return AiUsage(
+            inputTokens = n("input_tokens") + write + read,
+            cachedInputTokens = read,
+            cacheWriteTokens = write,
+            outputTokens = n("output_tokens"),
+        )
     }
 
     companion object {
@@ -102,5 +133,20 @@ class AnthropicClient(
 
         /** Models that accept `fallbacks: "default"` (checked 2026-11-07). */
         val FALLBACK_MODELS = setOf("claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5")
+
+        /** Models that take `output_config.effort`; older ones reject it (checked 2026-11-07). */
+        val EFFORT_MODELS = setOf(
+            "claude-fable-5-1",
+            "claude-fable-5",
+            "claude-opus-5-5",
+            "claude-opus-5",
+            "claude-opus-4-8",
+            "claude-opus-4-7",
+            "claude-opus-4-6",
+            "claude-sonnet-5-5",
+            "claude-sonnet-5",
+            "claude-sonnet-4-6",
+            "claude-haiku-5-5",
+        )
     }
 }

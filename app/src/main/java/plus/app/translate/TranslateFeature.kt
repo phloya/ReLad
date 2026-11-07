@@ -20,7 +20,9 @@ import plus.app.ui.PlusAiProvidersScreen
 import plus.core.pipeline.PageProcessor
 import plus.translate.PageTranslator
 import plus.translate.TargetLanguage
+import plus.translate.bible.BibleStore
 import tachiyomi.presentation.core.util.collectAsState
+import java.io.File
 import java.util.Locale
 
 object TranslateFeature : PlusFeature {
@@ -38,9 +40,18 @@ object TranslateFeature : PlusFeature {
             )
         },
         clientFor = graph::aiClient,
+        bibles = bibles(graph),
     )
 
     override fun settingsScreen(): Screen = TranslateSettingsScreen()
+
+    @Volatile
+    private var bibleStore: BibleStore? = null
+
+    /** Each title's notes for the translator; in app files (not cache), they must survive a cache clear. */
+    fun bibles(graph: PlusGraph): BibleStore = bibleStore ?: synchronized(this) {
+        bibleStore ?: BibleStore(File(graph.context.filesDir, "relad/bible")).also { bibleStore = it }
+    }
 }
 
 internal class TranslatePreferences(graph: PlusGraph) {

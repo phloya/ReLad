@@ -36,12 +36,62 @@ class AiRequest(
     val images: List<AiImage> = emptyList(),
     /** Ask the model for an image back (colorization). Not every provider or model can do it. */
     val imageOutput: Boolean = false,
+    /**
+     * Wanted shape of the returned image ("2:3", "3:4"...), where the API lets us say it
+     * (Gemini `imageConfig.aspectRatio`). Otherwise models usually keep the input's shape.
+     */
+    val imageAspectRatio: String? = null,
     /** Ask for a JSON answer where the API supports a JSON mode. The prompt must describe the format too. */
     val jsonOutput: Boolean = false,
     val maxOutputTokens: Int = 16_384,
+    /**
+     * Beginning of the system prompt that is the same in many requests (fixed rules, a title's
+     * glossary); [system] follows it. Providers keep such a beginning cached and bill it 5–20 times
+     * cheaper on repeat: Anthropic when marked (a marker after this part and after [system]),
+     * OpenAI and Gemini on their own when the beginning of the request repeats.
+     */
+    val stableSystem: String? = null,
+    /**
+     * How much hidden reasoning the model may spend: reasoning is billed as output, the dearest part.
+     * Sent only where the model is known to take it (Claude 4.6+ `effort`, Gemini 3+ `thinkingLevel`
+     * for [AiEffort.Low]); elsewhere the model's own default stays. `null`: the model's default.
+     */
+    val effort: AiEffort? = null,
+) {
+    /** The whole system prompt, for APIs that take one text. */
+    val fullSystem: String?
+        get() = listOfNotNull(stableSystem, system).joinToString("\n\n").ifEmpty { null }
+}
+
+enum class AiEffort(val wire: String) {
+    Low("low"),
+    Medium("medium"),
+    High("high"),
+}
+
+class AiResponse(
+    val text: String?,
+    val images: List<AiImage>,
+    /** What the request used, if the provider said (all three formats do). */
+    val usage: AiUsage? = null,
 )
 
-class AiResponse(val text: String?, val images: List<AiImage>)
+/**
+ * Tokens one request used, as the provider reported them: the basis for showing what a chapter
+ * costs. Missing numbers are 0.
+ */
+data class AiUsage(
+    /** All input tokens: text, images and the parts read from or written to the cache. */
+    val inputTokens: Long,
+    /** Part of [inputTokens] read from the provider's prompt cache (much cheaper). */
+    val cachedInputTokens: Long = 0,
+    /** Part of [inputTokens] written to the cache (Anthropic charges a bit more for it). */
+    val cacheWriteTokens: Long = 0,
+    /** All output tokens, including the model's hidden reasoning ("thinking"). */
+    val outputTokens: Long,
+    /** Price in US dollars if the provider reports it itself (OpenRouter does). */
+    val reportedCostUsd: Double? = null,
+)
 
 class AiException(message: String, val kind: Kind, cause: Throwable? = null) : Exception(message, cause) {
     enum class Kind {
