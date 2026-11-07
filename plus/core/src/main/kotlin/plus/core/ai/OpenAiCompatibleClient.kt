@@ -96,7 +96,8 @@ class OpenAiCompatibleClient(
         }
         if (text == null && images.isEmpty()) {
             val reason = choice["finish_reason"]?.jsonPrimitive?.contentOrNull
-            throw AiException("${config.name}: empty answer ($reason)", AiException.Kind.BadResponse)
+            val kind = if (reason == "content_filter") AiException.Kind.Refused else AiException.Kind.BadResponse
+            throw AiException("${config.name}: empty answer ($reason)", kind)
         }
         return AiResponse(text, images, usage(body))
     }

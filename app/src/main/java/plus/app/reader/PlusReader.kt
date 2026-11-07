@@ -26,8 +26,8 @@ import mihon.app.di.appGraph
 import okio.Buffer
 import plus.app.Plus
 import plus.app.PlusGraph
-import plus.core.ai.AiException
 import plus.core.pipeline.PageContext
+import plus.core.pipeline.PageProcessingEngine
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import java.io.InputStream
@@ -48,6 +48,20 @@ object PlusReader {
 
     private val sourceLanguages = java.util.concurrent.ConcurrentHashMap<Long, String>()
 
+    /** A page whose original Re:Lad has seen: enough to ask the engine where it stands. */
+    class KnownPage(val hash: String, val context: PageContext)
+
+    private val known: MutableMap<ReaderChapter, MutableMap<Int, KnownPage>> =
+        Collections.synchronizedMap(WeakHashMap())
+
+    /** The pages of [chapter] Re:Lad has seen so far, by index. */
+    fun knownPages(chapter: ReaderChapter): Map<Int, KnownPage> =
+        synchronized(known) { known[chapter]?.toMap() }.orEmpty()
+
+    private fun remember(page: ReaderPage, hash: String, context: PageContext) {
+        synchronized(known) { known.getOrPut(page.chapter) { mutableMapOf() } }[page.index] = KnownPage(hash, context)
+    }
+
     /** Chapters whose pages are being made ready ahead, one walk each. */
     private val preparing: MutableMap<ReaderChapter, Job> = Collections.synchronizedMap(WeakHashMap())
 
@@ -59,6 +73,7 @@ object PlusReader {
         val graph = Plus.graph(activity)
         if (!graph.anyEnabled()) return original
         prepareChapter(activity, page)
+        PlusReaderStatus.show(activity, page.chapter)
         return {
             val bytes = original().use { it.readBytes() }
             val context = pageContext(activity, page)
@@ -67,6 +82,7 @@ object PlusReader {
             } else {
                 val resolved = graph.engine.resolve(bytes, context)
                 originalHashes[page] = resolved.originalHash
+                remember(page, resolved.originalHash, context)
                 resolved.image.inputStream()
             }
         }
@@ -146,6 +162,7 @@ object PlusReader {
         } ?: return
         if (ImageUtil.isAnimatedAndSupported(Buffer().write(bytes))) return
         val context = pageContext(activity, page) ?: return
+        remember(page, PageProcessingEngine.sha256(bytes), context)
         graph.engine.prepare(bytes, context)
     }
 
@@ -172,7 +189,7 @@ object PlusReader {
         val now = System.currentTimeMillis()
         if (now - lastToastAt < TOAST_INTERVAL_MS) return
         lastToastAt = now
-        val message = (error as? AiException)?.message ?: error.message ?: error.javaClass.simpleName
+        val message = PlusReaderStatus.reason(activity, error)
         withContext(Dispatchers.Main) {
             Toast.makeText(
                 activity,

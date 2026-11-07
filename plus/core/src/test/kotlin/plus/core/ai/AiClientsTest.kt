@@ -158,7 +158,7 @@ class AiClientsTest {
 
         val error = shouldThrow<AiException> { client.send(request) }
 
-        error.kind shouldBe AiException.Kind.BadResponse
+        error.kind shouldBe AiException.Kind.Refused
         error.message!! shouldContain "SAFETY"
     }
 
@@ -206,7 +206,7 @@ class AiClientsTest {
 
         val error = shouldThrow<AiException> { client.send(request) }
 
-        error.kind shouldBe AiException.Kind.BadResponse
+        error.kind shouldBe AiException.Kind.Refused
         error.message!! shouldContain "declined"
         error.message!! shouldContain "cyber"
     }

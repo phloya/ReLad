@@ -88,7 +88,7 @@ class GeminiClient(
             val blocked = body["promptFeedback"]?.jsonObject?.get("blockReason")?.jsonPrimitive?.contentOrNull
             throw AiException(
                 "${config.name}: no answer${blocked?.let { " (blocked: $it)" }.orEmpty()}",
-                AiException.Kind.BadResponse,
+                if (blocked != null) AiException.Kind.Refused else AiException.Kind.BadResponse,
             )
         }
         val parts = (candidate["content"]?.jsonObject?.get("parts") as? JsonArray).orEmpty().map { it.jsonObject }
