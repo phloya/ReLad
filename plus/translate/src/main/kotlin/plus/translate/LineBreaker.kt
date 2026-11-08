@@ -48,8 +48,8 @@ class TextPieces private constructor(
 
     companion object {
         /**
-         * [hyphenate]: long words may also be cut between syllables. A letterer does that only when a
-         * word won't fit the bubble's width at the smallest readable size: try without first.
+         * [hyphenate]: long words may also be cut between syllables. A letterer does that only when
+         * whole words would leave the text much smaller: try without first.
          */
         fun of(
             text: String,
@@ -82,7 +82,7 @@ class TextPieces private constructor(
             }
             val pieces = mutableListOf<String>()
             val soft = mutableListOf<Boolean>()
-            for (word in words) {
+            for (word in marksJoined(words)) {
                 val cut = hyphenate && measurer.width(word.trim()) > cutWiderThan
                 val parts = if (cut) Hyphenation.split(word) else listOf(word)
                 parts.forEachIndexed { k, part ->
@@ -115,6 +115,32 @@ class TextPieces private constructor(
                 full = FloatArray(pieces.size) { measurer.width(pieces[it]) },
                 trimmed = FloatArray(pieces.size) { measurer.width(pieces[it].trimEnd()) },
             )
+        }
+
+        /**
+         * Marks with no letters stay with a word: "…" before one ("…Побыть": a line may break after it
+         * on a phone, whose line breaking follows Unicode's), a dash after one ("одному —": a line
+         * doesn't start with it), a dash opening the text before its first word.
+         */
+        private fun marksJoined(words: List<String>): List<String> {
+            val joined = mutableListOf<String>()
+            var before = ""
+            for (word in words) {
+                val bare = word.none { it.isLetterOrDigit() }
+                when {
+                    bare && word.last().isWhitespace() && joined.isNotEmpty() && before.isEmpty() ->
+                        joined[joined.size - 1] += word
+                    bare -> before += word
+                    else -> {
+                        joined += before + word
+                        before = ""
+                    }
+                }
+            }
+            if (before.isNotEmpty()) {
+                if (joined.isEmpty()) joined += before else joined[joined.size - 1] += before
+            }
+            return joined
         }
 
         private fun letters(text: String) = text.count { it.isLetter() }

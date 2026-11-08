@@ -273,7 +273,7 @@ class PageTranslator(
         const val MAX_RENDER_AT_ONCE = 4
 
         /** Bump when erasing or typesetting changes: pages already made are then drawn again. */
-        const val RENDER_VERSION = 14
+        const val RENDER_VERSION = 15
         const val MAX_MODEL_BYTES = 4 * 1024 * 1024
 
         /** Claude scales larger images down itself (about 3.75 MP); keep below to know the size. */
