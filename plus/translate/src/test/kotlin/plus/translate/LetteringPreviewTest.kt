@@ -72,6 +72,11 @@ class LetteringPreviewTest {
                     }.also { rows.copyInto(pixels, band.top * width) }.map { it to band.top }
                 }
                 log.append("planned in ${(System.nanoTime() - started) / 1_000_000} ms\n")
+                // Each text's lines as set (for counting cut words)
+                for ((set, _) in plans) {
+                    val lines = set.block.lines.joinToString(" | ") { it.text }
+                    log.append("lines '${set.region.text.take(20)}' $lines\n")
+                }
                 File(out, "${dir.name}-${file.nameWithoutExtension}.txt").writeText(log.toString())
                 val result = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
                 result.setRGB(0, 0, width, height, pixels, 0, width)

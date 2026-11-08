@@ -234,7 +234,28 @@ class LetteringTest {
     }
 
     @Test
-    fun `text that fits smaller is set smaller, not hyphenated`() {
+    fun `a word a little too wide is set smaller, a long one in a narrow bubble is cut once`() {
+        // A little smaller whole rather than cut
+        val little = bubbleWith("ВСЁ ЗАМЕЧАТЕЛЬНО")
+        little.block.lines.map { it.text.trim() } shouldBe listOf("ВСЁ", "ЗАМЕЧАТЕЛЬНО")
+        // Whole, the long word would leave the text far smaller (17 characters across a bubble
+        // of 12 at its size): cut once between syllables, never bigger than the original
+        val long = bubbleWith("ВСЁ ПЕРЕПРАВИТЕЛЬСТВА")
+        long.block.lines.map { it.text.trim() } shouldBe listOf("ВСЁ", "ПЕРЕПРАВИ-", "ТЕЛЬСТВА")
+        (long.block.size > little.block.size) shouldBe true
+        (long.block.size <= 20 / measurer.capHeight + 1) shouldBe true
+        // Marks stay with their word: no line starts with a dash or is only "…"
+        val marks = bubbleWith("…ПОБЫТЬ ОДНОМУ — НЕПЛОХО.")
+        marks.block.lines.none { it.text.trim().startsWith("—") || it.text.trim() == "…" } shouldBe true
+        pieces("…ПОБЫТЬ ОДНОМУ — НЕПЛОХО.").pieces shouldBe listOf("…ПОБЫТЬ ", "ОДНОМУ — ", "НЕПЛОХО.")
+        pieces("— ДА!").pieces shouldBe listOf("— ДА!")
+        pieces("...ВИТАЕШЬ В ОБЛАКАХ?").pieces.first() shouldBe "...ВИТАЕШЬ "
+        // A text of one word is made smaller, not cut, while it fits at a normal size
+        bubbleWith("ПРЕДУСМОТРИТЕЛЬНО").block.lines.size shouldBe 1
+    }
+
+    /** [text] set in a closed round bubble (240 × 160) where "IT'S OKAY." was, letters 20 pixels high. */
+    private fun bubbleWith(text: String): PageLettering.Lettering {
         val width = 400
         val height = 300
         val pixels = IntArray(width * height) { -0x1 }
@@ -248,9 +269,7 @@ class LetteringTest {
             }
         }
         for (x in 150 until 250 step 7) for (y in 140 until 160) pixels[y * width + x] = -0x1000000
-        // (the long word fits the bubble's middle only a little smaller than the smallest normal size)
-        val region = TextRegion(RegionType.Bubble, Box(140, 130, 260, 170), "IT'S OKAY.", "ВСЁ ПЕРЕПРАВИТЕЛЬСТВА")
-        val plan = PageLettering.plan(pixels, width, height, listOf(region), "ru", { _, _ -> measurer }).single()
-        plan.block.lines.map { it.text.trim() } shouldBe listOf("ВСЁ", "ПЕРЕПРАВИТЕЛЬСТВА")
+        val region = TextRegion(RegionType.Bubble, Box(140, 130, 260, 170), "IT'S OKAY.", text)
+        return PageLettering.plan(pixels, width, height, listOf(region), "ru", { _, _ -> measurer }).single()
     }
 }
