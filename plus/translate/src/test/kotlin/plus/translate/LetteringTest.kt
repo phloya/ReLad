@@ -50,11 +50,19 @@ class LetteringTest {
         // "что-то" stays on one line, and so does a short name ("Су-хо")
         pieces("ЧТО-ТО ДРУГОЕ").pieces.first() shouldBe "ЧТО-ТО "
         pieces("КАКОЙ СУ-ХО СМЫШЛЁНЫЙ").pieces[1] shouldBe "СУ-ХО "
+        pieces("ЧТО-ТО КАКОЙ-ТО").pieces shouldBe listOf("ЧТО-ТО ", "КАКОЙ-ТО")
+        // A long name with a short suffix may go over two lines at its hyphen
+        pieces("ЦУКИШИМА-КУН.").pieces shouldBe listOf("ЦУКИШИМА-", "КУН.")
     }
 
     @Test
-    fun `a long word is cut with a hyphen rather than the text shrunk`() {
-        val text = TextPieces.of("МНЕ НУЖНО ТЕБЯ ПОЗАИМСТВОВАТЬ!!!", measurer, Locale.forLanguageTag("ru"))
+    fun `a word wider than the lines is cut with a hyphen`() {
+        val text = TextPieces.of(
+            "МНЕ НУЖНО ТЕБЯ ПОЗАИМСТВОВАТЬ!!!",
+            measurer,
+            Locale.forLanguageTag("ru"),
+            hyphenate = true,
+        )
         // Size 10: a character is 6 px; the long word (17 characters, 102 px) is wider than the lines
         val ends = LineBreaker.split(text, 10f, floatArrayOf(70f, 70f, 70f, 70f)).shouldNotBeNull()
         var start = 0
@@ -65,6 +73,17 @@ class LetteringTest {
         val roomy = LineBreaker.split(text, 10f, floatArrayOf(200f, 200f)).shouldNotBeNull()
         start = 0
         roomy.map { end -> text.line(start, end).also { start = end } }.none { it.endsWith("-") } shouldBe true
+        // Only a word wider than the bubble is cut, and not the short ones beside it
+        val onlyLong = TextPieces.of(
+            "НУЖНО ТЕБЯ ПОЗАИМСТВОВАТЬ ЗАВТРА",
+            measurer,
+            Locale.forLanguageTag("ru"),
+            hyphenate = true,
+            cutWiderThan = 7 * 0.6f,
+        )
+        onlyLong.pieces.take(2) shouldBe listOf("НУЖНО ", "ТЕБЯ ")
+        onlyLong.pieces.last() shouldBe "ЗАВТРА"
+        (onlyLong.pieces.size > 4) shouldBe true
     }
 
     @Test
@@ -212,5 +231,26 @@ class LetteringTest {
         )
         val plans = PageLettering.plan(pixels, width, height, regions, "ru", { _, _ -> measurer })
         plans.map { it.region.text } shouldBe listOf("WAIT!")
+    }
+
+    @Test
+    fun `text that fits smaller is set smaller, not hyphenated`() {
+        val width = 400
+        val height = 300
+        val pixels = IntArray(width * height) { -0x1 }
+        // A closed round bubble with short lines of letters: "ALL GOOD." in it
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val dx = (x - 200) / 120.0
+                val dy = (y - 150) / 80.0
+                val r = dx * dx + dy * dy
+                if (r in 1.0..1.06) pixels[y * width + x] = -0x1000000
+            }
+        }
+        for (x in 150 until 250 step 7) for (y in 140 until 160) pixels[y * width + x] = -0x1000000
+        // (the long word fits the bubble's middle only a little smaller than the smallest normal size)
+        val region = TextRegion(RegionType.Bubble, Box(140, 130, 260, 170), "IT'S OKAY.", "ВСЁ ПЕРЕПРАВИТЕЛЬСТВА")
+        val plan = PageLettering.plan(pixels, width, height, listOf(region), "ru", { _, _ -> measurer }).single()
+        plan.block.lines.map { it.text.trim() } shouldBe listOf("ВСЁ", "ПЕРЕПРАВИТЕЛЬСТВА")
     }
 }

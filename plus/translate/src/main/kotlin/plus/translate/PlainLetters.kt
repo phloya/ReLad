@@ -65,7 +65,13 @@ object PlainLetters {
     fun find(pixels: IntArray, width: Int, height: Int, box: Box, others: List<Box> = emptyList()): Letters? {
         if (box.width < MIN_BOX || box.height < MIN_BOX) return null
         val margin = maxOf(MIN_MARGIN, (minOf(box.width, box.height) * MARGIN).toInt())
-        val first = scan(pixels, width, height, box, box.grown(margin, width, height), others) ?: return null
+        // The background is what lies around the box; or, when that finds nothing (a dark bubble on
+        // a white page, the box reaching past it), what fills the box
+        var byInside = false
+        val first = scan(pixels, width, height, box, box.grown(margin, width, height), others)
+            ?: scan(pixels, width, height, box, box.grown(margin, width, height), others, byInside = true)
+                ?.also { byInside = true }
+            ?: return null
         // Once the letters' size is known, again further around: the model's box may have missed a
         // line, or a line's end (along a line further than across)
         val limit = maxOf(box.width, box.height) * MAX_REACH
@@ -78,10 +84,18 @@ object PlainLetters {
             (box.right + maxOf(along, margin)).coerceAtMost(width),
             (box.bottom + maxOf(across, margin)).coerceAtMost(height),
         )
-        return scan(pixels, width, height, box, area, others) ?: first
+        return scan(pixels, width, height, box, area, others, byInside) ?: first
     }
 
-    private fun scan(pixels: IntArray, width: Int, height: Int, box: Box, area: Box, others: List<Box>): Letters? {
+    private fun scan(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        box: Box,
+        area: Box,
+        others: List<Box>,
+        byInside: Boolean = false,
+    ): Letters? {
         val w = area.width
         val h = area.height
         val n = w * h
@@ -95,6 +109,7 @@ object PlainLetters {
         var best = -1
         var bestAround = 0
         var bestSize = 0
+        var bestInside = 0
         for (seed in 0 until n) {
             if (label[seed] >= 0) continue
             val id = labels++
@@ -128,14 +143,20 @@ object PlainLetters {
                     stack[top++] = i + w
                 }
             }
-            if (around > bestAround) {
+            val inside = size - around
+            if (if (byInside) inside > bestInside else around > bestAround) {
                 best = id
                 bestAround = around
                 bestSize = size
+                bestInside = inside
             }
         }
         if (best < 0 || bestSize < n * MIN_BACKGROUND) return null
+        // (filling the box: most of it, the letters in it the rest)
+        if (byInside && bestInside < box.width.toLong() * box.height * MIN_FILLING) return null
         val background = BooleanArray(n) { label[it] == best }
+        val labelSize = IntArray(labels)
+        for (l in label) labelSize[l]++
 
         // The letters: everything the background encloses (what reaches the area's edge through
         // other pixels is art running out of it)
@@ -311,12 +332,34 @@ object PlainLetters {
 
         // Pixels of the letters' colour near them that were not found as letters
         val near = (letterHeight * HALO).toInt()
+        // (the background's reach in each row and column: what is beyond it is around the background,
+        // not in it)
+        val rowFirst = IntArray(h) { w }
+        val rowLast = IntArray(h) { -1 }
+        val colFirst = IntArray(w) { h }
+        val colLast = IntArray(w) { -1 }
+        for (i in 0 until n) {
+            if (!background[i]) continue
+            val x = i % w
+            val y = i / w
+            rowFirst[y] = minOf(rowFirst[y], x)
+            rowLast[y] = maxOf(rowLast[y], x)
+            colFirst[x] = minOf(colFirst[x], y)
+            colLast[x] = maxOf(colLast[x], y)
+        }
         var like = 0
         var found = 0
         for (y in maxOf(0, inkBox.top - area.top - near) until minOf(h, inkBox.bottom - area.top + near)) {
             for (x in maxOf(0, inkBox.left - area.left - near) until minOf(w, inkBox.right - area.left + near)) {
                 val i = y * w + x
                 if (distance(color[i], fill) * 2 > distance(fill, bg)) continue
+                // (a large plain area of the letters' colour beyond the background is no letter
+                // missed: the white page around a dark bubble)
+                if (labelSize[label[i]] >= letterHeight * letterHeight * BIG_PLAIN &&
+                    (x < rowFirst[y] || x > rowLast[y] || y < colFirst[x] || y > colLast[x])
+                ) {
+                    continue
+                }
                 like++
                 if (mask[i]) found++
             }
@@ -436,7 +479,6 @@ object PlainLetters {
     private fun keepText(mask: BooleanArray, color: IntArray, w: Int, h: Int, area: Box, box: Box, background: Int) {
         val piece = IntArray(mask.size) { -1 }
         val bounds = mutableListOf<IntArray>()
-        val means = mutableListOf<Int>()
         val queue = IntArray(mask.size)
         for (seed in mask.indices) {
             if (!mask[seed] || piece[seed] >= 0) continue
@@ -446,16 +488,10 @@ object PlainLetters {
             var tail = 0
             queue[tail++] = seed
             piece[seed] = id
-            var r = 0L
-            var g = 0L
-            var bl = 0L
             while (head < tail) {
                 val i = queue[head++]
                 val x = i % w
                 val y = i / w
-                r += (color[i] shr 16) and 0xFF
-                g += (color[i] shr 8) and 0xFF
-                bl += color[i] and 0xFF
                 b[0] = minOf(b[0], x)
                 b[1] = minOf(b[1], y)
                 b[2] = maxOf(b[2], x + 1)
@@ -474,7 +510,6 @@ object PlainLetters {
                 }
             }
             bounds += b
-            means += (0xFF shl 24) or ((r / tail).toInt() shl 16) or ((g / tail).toInt() shl 8) or (bl / tail).toInt()
         }
         if (bounds.isEmpty()) return
         val left = box.left - area.left
@@ -491,7 +526,16 @@ object PlainLetters {
         // shade) is not one of them
         val inBox = BooleanArray(mask.size) { mask[it] && touches(bounds[piece[it]], 0) }
         val ink = median(color, inBox)
-        val letterLike = BooleanArray(bounds.size) { distance(means[it], ink) < distance(means[it], background) }
+        // (by its pixels, not its mean colour: an O's hole is the background's colour, and a big hole
+        // makes the mean of the letter and its hole nearer the background's)
+        val inky = IntArray(bounds.size)
+        val count = IntArray(bounds.size)
+        for (i in mask.indices) {
+            if (!mask[i]) continue
+            count[piece[i]]++
+            if (distance(color[i], ink) < distance(color[i], background)) inky[piece[i]]++
+        }
+        val letterLike = BooleanArray(bounds.size) { inky[it] >= count[it] * MIN_INKY }
         val keep = BooleanArray(bounds.size)
         val next = ArrayDeque<Int>()
         val pad = (size * SEED_PAD).toInt()
@@ -716,6 +760,15 @@ object PlainLetters {
     /** Letters fill between these shares of the box around them: not specks, not a solid patch. */
     private const val MIN_SHARE = 0.04f
     private const val MAX_SHARE = 0.85f
+
+    /** A plain area of the letters' colour this many squared letter heights large is no letter. */
+    private const val BIG_PLAIN = 12f
+
+    /** The background found inside the box covers at least this share of it. */
+    private const val MIN_FILLING = 0.4f
+
+    /** A piece is letters if this share of its pixels (or more) is nearer the letters' colour than the background's. */
+    private const val MIN_INKY = 0.25f
 
     /** Colour distance (0–441) the letters stand out from the background by, at least. */
     private const val MIN_CONTRAST = 60f

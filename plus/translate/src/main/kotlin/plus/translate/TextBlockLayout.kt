@@ -46,11 +46,14 @@ class Room(val top: Int, private val left: IntArray, private val right: IntArray
         if (others.isEmpty()) return this
         val l = left.copyOf()
         val r = right.copyOf()
+        var changed = false
         for (i in l.indices) {
             if (l[i] < 0) continue
             val y = top + i
             for (box in others) {
                 if (y < box.top - margin || y >= box.bottom + margin) continue
+                if (box.right + margin <= left[i] || box.left - margin >= right[i]) continue
+                changed = true
                 when {
                     box.right + margin <= anchorX -> l[i] = maxOf(l[i], box.right + margin)
                     box.left - margin >= anchorX -> r[i] = minOf(r[i], box.left - margin)
@@ -63,7 +66,8 @@ class Room(val top: Int, private val left: IntArray, private val right: IntArray
                 }
             }
         }
-        return Room(top, l, r)
+        // No other text in the room: the same room (no text beside to keep off)
+        return if (changed) Room(top, l, r) else this
     }
 
     /** This room, but only inside [box]. */
@@ -193,7 +197,11 @@ object TextBlockLayout {
         for (k in 0 until lines) {
             // Letters sit around the line's middle; the room is checked where their ink is
             val baseline = top + k * lineHeight + lineHeight / 2 + cap / 2
-            val (l, r) = room.between(baseline - cap * ABOVE_CAP, baseline + cap * BELOW_BASELINE) ?: return null
+            // The first and last lines keep as much room from the outline above and below as at the sides
+            val above = if (k == 0) style.minPad * cap else 0f
+            val below = if (k == lines - 1) style.minPad * cap else 0f
+            val (l, r) = room.between(baseline - cap * ABOVE_CAP - above, baseline + cap * BELOW_BASELINE + below)
+                ?: return null
             val pad = maxOf(style.minPad * cap, style.padShare * (r - l))
             val center: Float
             val width: Float
@@ -217,6 +225,8 @@ object TextBlockLayout {
             baselines[k] = baseline
         }
         val ends = LineBreaker.split(text, size, widths) ?: return null
+        // A letterer cuts a word once in a text, if at all
+        if (ends.count { it > 0 && text.soft[it - 1] } > MAX_HYPHENS) return null
         var start = 0
         return TextBlock(
             size,
@@ -234,6 +244,9 @@ object TextBlockLayout {
 
     /** A line keeps to the axis while that leaves it at least this share of the row's width. */
     private const val MIN_AXIS_SHARE = 0.75f
+
+    /** Lines ending in a hyphen in one text, at most. */
+    private const val MAX_HYPHENS = 1
 
     /** Each try sets the text this much smaller. */
     private const val SHRINK = 0.94f
