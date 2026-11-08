@@ -84,6 +84,14 @@ Workflow Mihon `build.yml` (сборка, тесты, стиль кода на �
 | `app/.../presentation/reader/appbars/ReaderTopBar.kt` → меню ⋯ | `addAll(plusReaderMenu())` после «Поделиться» | «Перевести главу»; у переведённой главы — «Оригинал» и «Перевод (язык)», отмечен показанный |
 | `app/.../presentation/manga/MangaScreen.kt` → `MangaChapterListItem(scanlator = …)` | `PlusChapterLabel.withScanlator(...)` | «Перевод» или «Перевод 12/20» в строке главы, перед именем сканлейтеров |
 
+## Тестовые выпуски (ветка `relad/beta-release`)
+
+| Файл Mihon | Что изменено | Зачем |
+|---|---|---|
+| `app/build.gradle.kts` → блок версии Re:Lad | Номер для `versionCode` берётся из части до `-` | Тестовая версия `0.2.0-beta.1` получает номер 0.2.0 |
+| `domain/.../release/interactor/GetApplicationRelease.kt` → `isNewVersion` | Для обычных сборок вместо цикла Mihon вызывается `plusIsNewer`: числа сравниваются по порядку, выпуск новее своей тестовой версии | Цикл Mihon читал `0.2.0-beta.1` как `0.2.0.1`, падал, если у выпуска меньше чисел, и считал `0.1.5` новее `0.2.0` |
+| `domain/src/test/.../GetApplicationReleaseTest.kt` | Два теста: тестовые версии и версии, которые отличаются не в одном числе | Проверка правки выше |
+
 ## Наши файлы (конфликтов с Mihon не бывает)
 
 | Путь | Что это |

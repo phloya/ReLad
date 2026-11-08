@@ -96,4 +96,39 @@ class GetApplicationReleaseTest {
 
         result shouldBe GetApplicationRelease.Result.NoNewUpdate
     }
+
+    // PLUS --> Re:Lad: test versions (0.2.0-beta.1) and versions that differ in more than one number
+    @Test
+    fun `A release is newer than a test version of it`() = runTest {
+        expectUpdate(tag = "relad-v0.2.0", installed = "0.2.0-beta.1", update = true)
+        expectUpdate(tag = "relad-v0.2.0", installed = "0.2.0-beta.1-175", update = true)
+        expectUpdate(tag = "relad-v0.1.0", installed = "0.2.0-beta.1", update = false)
+        expectUpdate(tag = "relad-v0.2.0", installed = "0.2.0", update = false)
+    }
+
+    @Test
+    fun `An older release is not offered, whatever its later numbers`() = runTest {
+        expectUpdate(tag = "relad-v0.1.5", installed = "0.2.0", update = false)
+        expectUpdate(tag = "relad-v0.2.1", installed = "0.2.0", update = true)
+        expectUpdate(tag = "relad-v0.2", installed = "0.2.0", update = false)
+        expectUpdate(tag = "relad-v0.2.0.1", installed = "0.2.0", update = true)
+    }
+
+    private suspend fun expectUpdate(tag: String, installed: String, update: Boolean) {
+        val release = Release(tag, "info", "http://example.com/release_link", "http://example.com/release_link.apk")
+        coEvery { releaseService.latest(any()) } returns release
+
+        val result = getApplicationRelease.await(
+            GetApplicationRelease.Arguments(
+                isFoss = false,
+                isNightly = false,
+                commitCount = 0,
+                versionName = installed,
+                repository = "test",
+            ),
+        )
+
+        (result is GetApplicationRelease.Result.NewUpdate) shouldBe update
+    }
+    // PLUS <--
 }
