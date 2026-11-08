@@ -4,8 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapRegionDecoder
 import android.graphics.Rect
 import android.os.Build
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.Json
 import plus.core.ai.AiClient
 import plus.core.ai.AiException
@@ -18,6 +16,7 @@ import plus.core.pipeline.PageProcessor
 import plus.core.pipeline.ProcessedPage
 import plus.translate.bible.BibleStore
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * The translation step of the page pipeline: one request to a multimodal model finds and
@@ -73,6 +72,8 @@ class PageTranslator(
     }
 
     override suspend fun process(input: ByteArray, context: PageContext): ProcessedPage {
+        // Drawn in the order pages are asked for: the reader's page and the ones after it first
+        val ticket = tickets.incrementAndGet()
         val s = settings()
         // Already in the reader's language (a Russian edition read in Russian): nothing to pay for
         if (sameLanguage(context.sourceLanguage, s.language.code)) return ProcessedPage(input)
@@ -90,7 +91,7 @@ class PageTranslator(
         val translated = System.nanoTime()
 
         // A few pages at a time: a long strip at full size takes tens of megabytes while it is drawn
-        val image = rendering.withPermit {
+        val image = rendering.withPermit(ticket) {
             val drawStarted = System.nanoTime()
             // Full size up to 16 MP whatever the shape (a 4096 side limit made 800 × 14 820 strips 200 px
             // wide and blurry); larger pages are decoded smaller, boxes are in original pixels
@@ -268,7 +269,8 @@ class PageTranslator(
         )
     }
 
-    private val rendering = Semaphore(RENDER_AT_ONCE)
+    private val rendering = OrderedGate(RENDER_AT_ONCE)
+    private val tickets = AtomicLong()
 
     private fun seconds(from: Long, to: Long = System.nanoTime()) = "%.1f s".format((to - from) / 1e9)
 
