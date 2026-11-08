@@ -66,7 +66,11 @@ class PageTranslator(
     override fun signature(context: PageContext): String? {
         // A chapter shows its original until the reader asks for the translation
         if (versions?.translates(context.chapterId) == false) return null
-        val s = settings()
+        return drawnSignature(settings())
+    }
+
+    /** What a drawn page depends on: the translation's settings and the lettering's version. */
+    private fun drawnSignature(s: Settings): String {
         return listOf(
             "v${TranslationPrompt.VERSION}",
             "r$RENDER_VERSION",
@@ -83,7 +87,9 @@ class PageTranslator(
         val s = settings()
         // Already in the reader's language (a Russian edition read in Russian): nothing to pay for
         if (sameLanguage(context.sourceLanguage, s.language.code)) {
-            s.provider?.let { versions?.pageTranslated(context.chapterId, context.pageIndex, textSignature(s, it)) }
+            s.provider?.let {
+                versions?.pageTranslated(context.chapterId, context.pageIndex, textSignature(s, it), drawnSignature(s))
+            }
             return ProcessedPage(input)
         }
         val provider = s.provider ?: throw NotConfiguredException()
@@ -124,7 +130,7 @@ class PageTranslator(
 
         // Counted once drawn, as the reader sees it: counted on the text alone, a chapter closed midway
         // showed 11 of 12 with 5 pages drawn
-        versions?.pageTranslated(context.chapterId, context.pageIndex, textSignature(s, provider))
+        versions?.pageTranslated(context.chapterId, context.pageIndex, textSignature(s, provider), drawnSignature(s))
         return ProcessedPage(image = image, metadata = json.encodeToString(TranslatedPage.serializer(), page))
     }
 
@@ -184,6 +190,12 @@ class PageTranslator(
     fun textSignature(): String? {
         val s = settings()
         return s.provider?.let { textSignature(s, it) }
+    }
+
+    /** What pages are drawn with now (lettering version included); `null` without a provider. */
+    fun drawnSignature(): String? {
+        val s = settings()
+        return s.provider?.let { drawnSignature(s) }
     }
 
     /** Same language; Chinese only when the script matches too (Simplified and Traditional differ). */
