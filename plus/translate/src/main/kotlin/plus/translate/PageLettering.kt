@@ -481,6 +481,7 @@ object PageLettering {
             // An open sign is erased only in its box: letters followed on would take its pictures too
             paintBox = region.box.expanded(if (sign) SIGN_MARGIN else BubbleEraser.PAINT_MARGIN, width, height),
             followLetters = !sign,
+            others = others,
         )
         // Narration on the art (light letters with a dark edge, no box around them): its letters are
         // found like a sound's, and the art behind them drawn on. Only when (nearly) all of them are
