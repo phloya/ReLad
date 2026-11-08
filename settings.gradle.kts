@@ -47,6 +47,9 @@ include(":source-api")
 include(":source-local")
 include(":telemetry")
 
-// PLUS --> Re:Lad modules live in plus/ (see plus/README.md)
-include(":plus:core")
+// PLUS --> Re:Lad modules: every folder in plus/ with a build.gradle.kts (see plus/README.md)
+file("plus").listFiles().orEmpty()
+    .filter { File(it, "build.gradle.kts").isFile }
+    .sortedBy { it.name }
+    .forEach { include(":plus:${it.name}") }
 // PLUS <--

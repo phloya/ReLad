@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PLUS: Re:Lad page translation strings (branch relad/translate) -->
+<resources>
+    <string name="plus_translate_language">Translate into</string>
+    <string name="plus_translate_sfx">Translate sound effects</string>
+    <string name="plus_translate_sfx_summary">The sound effect is drawn again in its translation, in the style of the original</string>
+    <string name="plus_translate_no_providers">Add an AI provider first</string>
+    <string name="plus_translate_how">A chapter opens in the original and costs nothing. To translate it, tap ⋯ → Translate the chapter in the reader (or the globe button below), or select chapters in the list and tap Translate. The chapter is translated whole in the background, also when you leave the reader, and then opens translated; ⋯ switches between the original and the translation. Each page is one request to the AI provider: it finds the text and translates it. A vision model is needed (e.g. Gemini Flash, GPT-4o-class, Claude). Translated pages are kept, so re-reading costs nothing.</string>
+    <string name="plus_translate_chapters">Translate</string>
+    <string name="plus_translate_started">Translating chapters in the background: %1$d</string>
+    <string name="plus_translate_finished">Chapters translated: %1$d of %2$d</string>
+    <string name="plus_translate_channel">Chapter translation</string>
+    <string name="plus_translate_notification_title">Translating %1$s</string>
+    <string name="plus_translate_progress">%1$s: %2$d of %3$d pages</string>
+    <string name="plus_translate_progress_chapters">chapter %1$d of %2$d</string>
+    <string name="plus_translate_saved">Saved translations</string>
+    <string name="plus_translate_saved_summary">Pages: %1$d, %2$s. Kept for good: a page translated once is only drawn again, even offline. Tap to delete them all</string>
+    <string name="plus_translate_saved_confirm">Delete all saved translations? Pages will be translated by the model again when read, and that uses tokens again.</string>
+    <string name="plus_translate_saved_delete">Delete</string>
+    <string name="plus_translate_saved_deleted">Saved translations deleted</string>
+    <string name="plus_translate_continue_hint">To go on, open the chapter or select chapters and tap Translate again: pages already done are kept.</string>
+    <string name="plus_reader_show_original">Show the original</string>
+    <string name="plus_reader_show_translation">Show the translation</string>
+    <string name="plus_retranslate">Translate again</string>
+    <string name="plus_retranslate_message">The model translates it anew, and that uses tokens again. The saved translation is replaced.</string>
+    <string name="plus_retranslate_page">This page</string>
+    <string name="plus_retranslate_chapter">Whole chapter</string>
+    <string name="plus_retranslate_button">Redo translation</string>
+    <string name="plus_translate_next_chapter">Translate the next chapter ahead</string>
+    <string name="plus_translate_next_chapter_summary">When the open chapter is done, the next one is translated in the background: no wait when you turn to it. Uses tokens on a chapter you may not open</string>
+    <string name="plus_reader_translate_chapter">Translate the chapter</string>
+    <string name="plus_reader_version_original">Original</string>
+    <string name="plus_reader_version_translation">Translation (%1$s)</string>
+    <string name="plus_chapter_translated">Translation</string>
+    <string name="plus_chapter_translating">Translation %1$d/%2$d</string>
+    <string name="plus_chapter_translation_started">Translation queued</string>
+</resources>

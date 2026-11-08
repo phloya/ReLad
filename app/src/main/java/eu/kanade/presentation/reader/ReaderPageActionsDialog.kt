@@ -2,6 +2,7 @@ package eu.kanade.presentation.reader
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +32,8 @@ fun ReaderPageActionsDialog(
     onSetAsCover: () -> Unit,
     onShare: (Boolean) -> Unit,
     onSave: () -> Unit,
+    // PLUS: Re:Lad's page actions (Translate again), see plus/HOOKS.md
+    plusActions: @Composable RowScope.() -> Unit = {},
 ) {
     var showSetCoverDialog by remember { mutableStateOf(false) }
 
@@ -72,6 +75,7 @@ fun ReaderPageActionsDialog(
                     onDismissRequest()
                 },
             )
+            plusActions() // PLUS
         }
     }
 

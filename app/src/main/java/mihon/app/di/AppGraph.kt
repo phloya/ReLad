@@ -98,6 +98,10 @@ interface AppGraph : ViewModelGraph {
 
     val downloadManager: DownloadManager
 
+    // PLUS --> Re:Lad translates chapters outside the reader with the reader's own page loaders
+    val downloadProvider: eu.kanade.tachiyomi.data.download.DownloadProvider
+    // PLUS <--
+
     val updateChecker: AppUpdateChecker
 
     val trustExtension: TrustExtension

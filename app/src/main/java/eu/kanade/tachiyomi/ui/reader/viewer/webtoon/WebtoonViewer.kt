@@ -279,6 +279,9 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
      * Scrolls up by [scrollDistance].
      */
     private fun scrollUp() {
+        // PLUS --> Re:Lad panel-by-panel reading scrolls to the previous piece of the strip
+        if (plus.app.panels.PlusPanels.onWebtoonScroll(this, down = false)) return
+        // PLUS <--
         if (config.usePageTransitions) {
             recycler.smoothScrollBy(0, -scrollDistance)
         } else {
@@ -290,6 +293,9 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
      * Scrolls down by [scrollDistance].
      */
     private fun scrollDown() {
+        // PLUS --> Re:Lad panel-by-panel reading scrolls to the next piece of the strip
+        if (plus.app.panels.PlusPanels.onWebtoonScroll(this, down = true)) return
+        // PLUS <--
         if (config.usePageTransitions) {
             recycler.smoothScrollBy(0, scrollDistance)
         } else {

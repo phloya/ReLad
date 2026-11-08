@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PLUS: Re:Lad scan enhancement strings (branch relad/enhance) -->
+<resources>
+    <string name="plus_enhance_strength">Cleaning strength</string>
+    <string name="plus_enhance_strength_summary">How hard noise and JPEG blocks are removed. Medium and Strong clean more but wipe out fine detail and tone gradients</string>
+    <string name="plus_enhance_strength_auto">Automatic, by how compressed the page is</string>
+    <string name="plus_enhance_strength_conservative">Gentle</string>
+    <string name="plus_enhance_strength_light">Light</string>
+    <string name="plus_enhance_strength_medium">Medium</string>
+    <string name="plus_enhance_strength_strong">Strong</string>
+    <string name="plus_enhance_whiten">White paper</string>
+    <string name="plus_enhance_whiten_summary">Makes grey or yellowed paper white on black-and-white pages. Colour pages are not changed</string>
+    <string name="plus_enhance_max_side">Upscale only pages smaller than</string>
+    <string name="plus_enhance_max_side_value">%1$d px on the long side</string>
+    <string name="plus_enhance_gpu">Use the graphics chip (Vulkan)</string>
+    <string name="plus_enhance_gpu_found">Found: %1$s. Much faster than the processor</string>
+    <string name="plus_enhance_gpu_missing">No Vulkan graphics chip found: the processor is used, which is slower</string>
+    <string name="plus_enhance_model">Model</string>
+    <string name="plus_enhance_model_info">License: %1$s. Download: %2$s, once; stored on the phone</string>
+    <string name="plus_enhance_model_ready">Downloaded</string>
+    <string name="plus_enhance_download">Download the model now</string>
+    <string name="plus_enhance_downloading">Downloading…</string>
+    <string name="plus_enhance_download_failed">Download failed: %1$s</string>
+    <string name="plus_enhance_non_commercial">Show models with a non-commercial license</string>
+    <string name="plus_enhance_non_commercial_summary">Some good models may only be used for free. They are off by default and are never part of the paid version</string>
+    <string name="plus_enhance_last_run">Last page: %1$d×%2$d in %3$.1f s on the %4$s, cleaning: %5$s</string>
+    <string name="plus_enhance_last_run_jpeg">, JPEG quality %1$d%%</string>
+    <string name="plus_enhance_last_run_whitened">, paper whitened</string>
+    <string name="plus_enhance_on_gpu">graphics chip</string>
+    <string name="plus_enhance_on_cpu">processor</string>
+    <string name="plus_enhance_how">The page is cleaned of noise and JPEG blocks and enlarged ×2 by a neural network (Real-CUGAN) on the phone, without internet. Enhanced pages are kept, so re-reading is instant.</string>
+    <string name="plus_enhance_backend">Where to enhance</string>
+    <string name="plus_enhance_backend_device">On the phone (free, works offline)</string>
+    <string name="plus_enhance_backend_replicate">In the cloud via Replicate (your API token, paid per page)</string>
+    <string name="plus_enhance_replicate_settings">Replicate: token and model</string>
+    <string name="plus_enhance_replicate_summary">%1$s · %2$s</string>
+    <string name="plus_enhance_replicate_token_saved">token saved</string>
+    <string name="plus_enhance_replicate_token_missing">no token yet</string>
+    <string name="plus_enhance_replicate_intro">Pages are sent to Replicate (replicate.com) and enhanced by the model you choose. Replicate charges your account per page. Get a token at replicate.com/account/api-tokens. On our manga tests the phone’s own model was cleaner than these; the cloud helps on weak phones or with a paid model.</string>
+    <string name="plus_enhance_replicate_token">API token</string>
+    <string name="plus_enhance_replicate_model">Model</string>
+    <string name="plus_enhance_replicate_model_info">License: %1$s. Price: %2$s per page</string>
+    <string name="plus_enhance_replicate_custom">Another model</string>
+    <string name="plus_enhance_replicate_custom_model">Model on Replicate</string>
+    <string name="plus_enhance_replicate_custom_model_hint">owner/name or owner/name:version</string>
+    <string name="plus_enhance_replicate_custom_field">Input that takes the image</string>
+    <string name="plus_enhance_replicate_custom_input">Other inputs (JSON)</string>
+    <string name="plus_enhance_replicate_base_url">API address (development builds only)</string>
+    <string name="plus_enhance_replicate_check">Check the token</string>
+    <string name="plus_enhance_replicate_checking">Checking…</string>
+    <string name="plus_enhance_replicate_check_ok">Works: account %1$s</string>
+    <string name="plus_enhance_replicate_check_failed">Does not work: %1$s</string>
+    <string name="plus_enhance_replicate_save">Save</string>
+    <string name="plus_enhance_last_run_cloud">Last page: %1$d×%2$d in %3$.1f s via Replicate (%4$s)</string>
+    <string name="plus_enhance_how_cloud">Pages are sent to Replicate, enhanced there and kept on the phone, so re-reading is free and instant.</string>
+</resources>

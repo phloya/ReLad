@@ -19,6 +19,7 @@ import mihon.icons.materialsymbols.rounded.QueryStats
 import mihon.icons.materialsymbols.rounded.Settings
 import mihon.icons.materialsymbols.rounded.Storage
 import mihon.icons.materialsymbols.roundedfilled.VolunteerActivism
+import plus.app.ui.PlusMoreEntry
 import tachiyomi.core.common.Constants
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.ScrollbarLazyColumn
@@ -72,6 +73,10 @@ fun MoreScreen(
             }
 
             item { HorizontalDivider() }
+
+            // PLUS --> Re:Lad features entry
+            item { PlusMoreEntry() }
+            // PLUS <--
 
             item {
                 val downloadQueueState = downloadQueueStateProvider()

@@ -1,0 +1,266 @@
+package plus.core.pipeline
+
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.security.MessageDigest
+
+/**
+ * Re:Lad's page pipeline. The reader hands over every page image it shows; the engine answers
+ * at once with the best version it already has (the original, or a cached processed version)
+ * and processes missing steps in the background. When a page is done, its original's hash is
+ * sent to [completed] and the reader asks again.
+ *
+ * Every step's output is cached separately (key = hash of the previous key + step id + signature),
+ * so switching translation off still shows the enhanced page instantly.
+ */
+class PageProcessingEngine(
+    private val processors: () -> List<PageProcessor>,
+    private val cache: PageCache,
+    scope: CoroutineScope,
+    parallelism: Int = 4,
+    maxPending: Int = 8,
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+
+    /** Result of [resolve]: the bytes to show now and whether more work is on its way. */
+    class Resolved(val image: ByteArray, val originalHash: String, val pending: Boolean)
+
+    class Failure(val originalHash: String, val processorId: String, val error: Throwable)
+
+    /** Where a page stands, for showing the reader how a chapter is getting on. */
+    sealed interface PageState {
+        /** Every active step is done (or there are none). */
+        data object Done : PageState
+
+        /** A step failed a moment ago; retried after [RETRY_AFTER_MS] or when settings change. */
+        class Failed(val error: Throwable) : PageState
+
+        /** Not done yet: waiting or being processed. */
+        data object Waiting : PageState
+    }
+
+    private val _completed = MutableSharedFlow<String>(extraBufferCapacity = 64)
+
+    /** Hashes of original pages whose processed version just became available. */
+    val completed: SharedFlow<String> = _completed.asSharedFlow()
+
+    private val _failures = MutableSharedFlow<Failure>(extraBufferCapacity = 16)
+
+    /** Steps that failed (no API key, network error...). The page stays at the last good step. */
+    val failures: SharedFlow<Failure> = _failures.asSharedFlow()
+
+    private val _settingsVersion = MutableStateFlow(0)
+
+    /** Bumped by [onSettingsChanged]; the reader reloads visible pages when it changes. */
+    val settingsVersion: StateFlow<Int> = _settingsVersion.asStateFlow()
+
+    private val lock = Any()
+
+    /** Pages waiting in the queue or being made. */
+    private val inFlight = mutableSetOf<String>()
+
+    /** Pages being made now: by the queue or by [prepare] in the chapter walk. */
+    private val running = mutableSetOf<String>()
+
+    /** Each step's own limit on pages at once (see [PageProcessor.concurrency]). */
+    private val permits = mutableMapOf<String, Semaphore>()
+
+    private fun permitsFor(processor: PageProcessor) = synchronized(lock) {
+        permits.getOrPut(processor.id) { Semaphore(processor.concurrency.coerceAtLeast(1)) }
+    }
+    private val failedAt = mutableMapOf<String, Long>()
+    private val failedWith = mutableMapOf<String, Throwable>()
+
+    private val queue = LifoWorkQueue(
+        scope = scope,
+        parallelism = parallelism,
+        maxPending = maxPending,
+        onDropped = { key -> synchronized(lock) { inFlight.remove(key) } },
+    )
+
+    /** Call when any processor's settings change, so pages get reprocessed with the new ones. */
+    fun onSettingsChanged() {
+        synchronized(lock) {
+            failedAt.clear()
+            failedWith.clear()
+        }
+        _settingsVersion.update { it + 1 }
+    }
+
+    /**
+     * The reader asked again (Retry, or Translate on chapters that stopped): pages that failed are
+     * tried at once instead of after [RETRY_AFTER_MS], and the reader shows them again.
+     */
+    fun retryFailed() = onSettingsChanged()
+
+    /**
+     * Makes this page again from the step [processorId] on (Translate this page again): that step's
+     * and later steps' cached images go, and the step forgets what it keeps of the page itself.
+     * Earlier steps stay. The next [resolve] or [prepare] then runs the step anew.
+     */
+    fun redo(original: ByteArray, context: PageContext, processorId: String) {
+        val steps = activeSteps(sha256(original), context)
+        val index = steps.indexOfFirst { it.processor.id == processorId }
+        if (index < 0) return
+        // The step's input: the earlier step's cached image (if it was dropped, that step makes a
+        // new one, and a kept result of this step for the old input no longer matches anyway)
+        val input = if (index == 0) original else cache.get(steps[index - 1].key)
+        if (input != null) steps[index].processor.forget(input, context)
+        steps.drop(index).forEach { cache.remove(it.key) }
+        synchronized(lock) {
+            steps.drop(index).forEach {
+                failedAt.remove(it.key)
+                failedWith.remove(it.key)
+            }
+        }
+    }
+
+    /**
+     * Returns the most processed version of [original] that is already cached and schedules
+     * the missing steps. Cheap apart from hashing; call it from a background thread.
+     */
+    fun resolve(original: ByteArray, context: PageContext): Resolved {
+        val originalHash = sha256(original)
+        val plan = plan(originalHash, original, context)
+            ?: return Resolved(original, originalHash, pending = false)
+        if (plan.remaining.isEmpty()) return Resolved(plan.image, originalHash, pending = false)
+
+        val scheduled = synchronized(lock) {
+            when {
+                recentlyFailed(plan.finalKey) -> false
+                // Being made now (often by the chapter walk): a second job would ask the model again
+                plan.finalKey in running -> return Resolved(plan.image, originalHash, pending = true)
+                plan.finalKey in inFlight -> true
+                else -> {
+                    inFlight += plan.finalKey
+                    true
+                }
+            }
+        }
+        if (scheduled) {
+            queue.submit(plan.finalKey) { run(originalHash, plan.finalKey, plan.image, plan.remaining, context) }
+        }
+        return Resolved(plan.image, originalHash, pending = scheduled)
+    }
+
+    /**
+     * Processes [original] through every missing step in the caller's coroutine, for pages made
+     * ready before the reader gets to them (a whole chapter at once). Returns when the page is
+     * done or failed; at once if it is cached, failed a moment ago or already being processed.
+     * Each step's [PageProcessor.concurrency] holds here too.
+     */
+    suspend fun prepare(original: ByteArray, context: PageContext) {
+        val originalHash = sha256(original)
+        val plan = plan(originalHash, original, context) ?: return
+        if (plan.remaining.isEmpty()) return
+        val claimed = synchronized(lock) {
+            if (recentlyFailed(plan.finalKey) || plan.finalKey in inFlight) {
+                false
+            } else {
+                inFlight += plan.finalKey
+                true
+            }
+        }
+        if (claimed) run(originalHash, plan.finalKey, plan.image, plan.remaining, context)
+    }
+
+    /** What a page still needs: the best cached version and the steps after it. `null`: no steps at all. */
+    private class Plan(val image: ByteArray, val finalKey: String, val remaining: List<Step>)
+
+    private fun plan(originalHash: String, original: ByteArray, context: PageContext): Plan? {
+        val steps = activeSteps(originalHash, context)
+        if (steps.isEmpty()) return null
+        // The last step that is already cached
+        for (i in steps.indices.reversed()) {
+            val cached = cache.get(steps[i].key) ?: continue
+            return Plan(cached, steps.last().key, steps.drop(i + 1))
+        }
+        return Plan(original, steps.last().key, steps)
+    }
+
+    private fun recentlyFailed(finalKey: String): Boolean {
+        val failed = failedAt[finalKey] ?: return false
+        return clock() - failed < RETRY_AFTER_MS
+    }
+
+    /** Where the page whose original has [originalHash] stands with the current settings. Cheap: no image is read. */
+    fun state(originalHash: String, context: PageContext): PageState {
+        val finalKey = activeSteps(originalHash, context).lastOrNull()?.key ?: return PageState.Done
+        if (cache.contains(finalKey)) return PageState.Done
+        return synchronized(lock) {
+            failedWith[finalKey]?.takeIf { recentlyFailed(finalKey) }?.let { PageState.Failed(it) } ?: PageState.Waiting
+        }
+    }
+
+    /** Metadata the last step stored for this page (e.g. translated text regions), if any. */
+    fun metadata(original: ByteArray, context: PageContext): String? {
+        val steps = activeSteps(sha256(original), context)
+        return steps.lastOrNull()?.let { cache.metadata(it.key) }
+    }
+
+    private suspend fun run(
+        originalHash: String,
+        finalKey: String,
+        input: ByteArray,
+        steps: List<Step>,
+        context: PageContext,
+    ) {
+        // One run per page at a time: the queue may get a page that is already being made
+        if (!synchronized(lock) { running.add(finalKey) }) return
+        var image = input
+        try {
+            for (step in steps) {
+                val result = try {
+                    permitsFor(step.processor).withPermit { step.processor.process(image, context) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    synchronized(lock) {
+                        failedAt[finalKey] = clock()
+                        failedWith[finalKey] = e
+                    }
+                    _failures.tryEmit(Failure(originalHash, step.processor.id, e))
+                    return
+                }
+                cache.put(step.key, result)
+                image = result.image
+            }
+            _completed.tryEmit(originalHash)
+        } finally {
+            synchronized(lock) {
+                running.remove(finalKey)
+                inFlight.remove(finalKey)
+            }
+        }
+    }
+
+    private class Step(val processor: PageProcessor, val key: String)
+
+    private fun activeSteps(originalHash: String, context: PageContext): List<Step> {
+        var key = originalHash
+        return processors()
+            .sortedBy { it.order }
+            .mapNotNull { processor ->
+                val signature = processor.signature(context) ?: return@mapNotNull null
+                key = sha256("$key|${processor.id}|$signature".toByteArray())
+                Step(processor, key)
+            }
+    }
+
+    companion object {
+        /** A failed page is not retried automatically for this long (settings changes reset it). */
+        const val RETRY_AFTER_MS = 60_000L
+
+        fun sha256(bytes: ByteArray): String =
+            MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+    }
+}

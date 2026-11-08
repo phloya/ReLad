@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PLUS: Re:Lad panel-by-panel reading (see plus/HOOKS.md) -->
+<resources>
+    <string name="plus_feature_panels">Panel by panel</string>
+    <string name="plus_feature_panels_summary">The reader zooms to one panel at a time; swipe or tap for the next one</string>
+    <string name="plus_panels_reader_button">Panel by panel</string>
+    <string name="plus_panels_turned_on">Panel by panel: on</string>
+    <string name="plus_panels_turned_off">Panel by panel: off</string>
+    <string name="plus_panels_order">Panel order</string>
+    <string name="plus_panels_order_auto">Follow the reading direction</string>
+    <string name="plus_panels_order_rtl">Right to left (manga)</string>
+    <string name="plus_panels_order_ltr">Left to right (comics)</string>
+    <string name="plus_panels_page_first">Show the whole page first</string>
+    <string name="plus_panels_page_first_summary">Before the first panel of each page</string>
+    <string name="plus_panels_dim">Dim the other panels</string>
+    <string name="plus_panels_dim_summary">Darkens what is around the panel being read</string>
+    <string name="plus_panels_how">Panels are found right on the phone, without the internet. In the page modes the reader zooms to each panel; very tall panels are shown at screen width in several steps. In the webtoon modes the strip is cut into screens at the empty space between panels. Pages without visible borders are shown whole. The button with a framed page in the reader menu switches the mode on and off.</string>
+</resources>

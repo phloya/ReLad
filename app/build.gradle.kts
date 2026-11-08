@@ -249,8 +249,11 @@ dependencies {
     implementation(projects.presentationCore)
     implementation(projects.presentationWidget)
     implementation(projects.telemetry)
-    // PLUS --> Re:Lad modules
-    implementation(projects.plus.core)
+    // PLUS --> Re:Lad modules: every module in plus/, so a new feature module needs no edit here
+    layout.settingsDirectory.dir("plus").asFile.listFiles().orEmpty()
+        .filter { File(it, "build.gradle.kts").isFile }
+        .sortedBy { it.name }
+        .forEach { implementation(project(":plus:${it.name}")) }
     // PLUS <--
 
     // Compose

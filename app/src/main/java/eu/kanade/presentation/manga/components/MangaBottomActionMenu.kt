@@ -60,6 +60,7 @@ import mihon.icons.materialsymbols.rounded.Delete
 import mihon.icons.materialsymbols.rounded.DoneAll
 import mihon.icons.materialsymbols.rounded.Download
 import mihon.icons.materialsymbols.rounded.MoreVert
+import mihon.icons.materialsymbols.rounded.Public
 import mihon.icons.materialsymbols.rounded.RemoveDone
 import mihon.icons.materialsymbols.rounded.SwapCalls
 import tachiyomi.i18n.MR
@@ -77,6 +78,9 @@ fun MangaBottomActionMenu(
     onMarkPreviousAsReadClicked: (() -> Unit)? = null,
     onDownloadClicked: (() -> Unit)? = null,
     onDeleteClicked: (() -> Unit)? = null,
+    // PLUS --> Re:Lad: translate the selected chapters in the background
+    onTranslateClicked: (() -> Unit)? = null,
+    // PLUS <--
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -90,7 +94,8 @@ fun MangaBottomActionMenu(
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
         ) {
             val haptic = LocalHapticFeedback.current
-            val confirm = remember { mutableStateListOf(false, false, false, false, false, false, false) }
+            // PLUS: one more for Re:Lad's Translate
+            val confirm = remember { mutableStateListOf(false, false, false, false, false, false, false, false) }
             var resetJob by remember { mutableStateOf<Job?>(null) }
             val onLongClickItem: (Int) -> Unit = { toConfirmIndex ->
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -173,6 +178,19 @@ fun MangaBottomActionMenu(
                         onClick = onDeleteClicked,
                     )
                 }
+                // PLUS -->
+                if (onTranslateClicked != null) {
+                    Button(
+                        title = androidx.compose.ui.res.stringResource(
+                            eu.kanade.tachiyomi.R.string.plus_translate_chapters,
+                        ),
+                        icon = MaterialSymbols.Rounded.Public,
+                        toConfirm = confirm[7],
+                        onLongClick = { onLongClickItem(7) },
+                        onClick = onTranslateClicked,
+                    )
+                }
+                // PLUS <--
             }
         }
     }
