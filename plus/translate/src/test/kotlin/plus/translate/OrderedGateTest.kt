@@ -65,13 +65,28 @@ class OrderedGateTest {
     @Test
     fun `reading order starts at the page opened, then the pages before it, then the next chapter`() {
         val order = ReadingOrder()
-        val opened = order.ticket(chapterId = 7, pageIndex = 4)
-        val later = order.ticket(chapterId = 7, pageIndex = 9)
-        val before = order.ticket(chapterId = 7, pageIndex = 1)
+        // Page 9's image came in first (as page 8 did in Kirara): it doesn't take the start
+        val later = order.ticket(chapterId = 7, pageIndex = 9, readingFrom = 4)
+        val before = order.ticket(chapterId = 7, pageIndex = 1, readingFrom = 4)
+        val opened = order.ticket(chapterId = 7, pageIndex = 4, readingFrom = 4)
         val nextChapter = order.ticket(chapterId = 8, pageIndex = 0)
-        val afterOpened = order.ticket(chapterId = 7, pageIndex = 5)
+        val afterOpened = order.ticket(chapterId = 7, pageIndex = 5, readingFrom = 4)
+        val closerBefore = order.ticket(chapterId = 7, pageIndex = 3, readingFrom = 4)
 
-        listOf(opened, afterOpened, later, before, nextChapter) shouldBe
-            listOf(opened, afterOpened, later, before, nextChapter).sorted()
+        listOf(opened, afterOpened, later, closerBefore, before, nextChapter) shouldBe
+            listOf(opened, afterOpened, later, closerBefore, before, nextChapter).sorted()
+    }
+
+    @Test
+    fun `a chapter done in the background goes from its first page, until the reader opens it elsewhere`() {
+        val order = ReadingOrder()
+        val third = order.ticket(chapterId = 7, pageIndex = 2)
+        val first = order.ticket(chapterId = 7, pageIndex = 0)
+        first shouldBe third - 2
+
+        val opened = order.ticket(chapterId = 7, pageIndex = 6, readingFrom = 6)
+        val before = order.ticket(chapterId = 7, pageIndex = 5, readingFrom = 6)
+        val otherChapter = order.ticket(chapterId = 9, pageIndex = 0)
+        listOf(opened, before, otherChapter) shouldBe listOf(opened, before, otherChapter).sorted()
     }
 }

@@ -73,6 +73,9 @@ object PlusReader {
     /** Chapters whose pages are being made ready ahead, one walk each. */
     private val preparing: MutableMap<ReaderChapter, Job> = Collections.synchronizedMap(WeakHashMap())
 
+    /** The page each chapter was opened at: the first one the reader showed. */
+    private val openedAt: MutableMap<ReaderChapter, Int> = WeakHashMap()
+
     @Volatile
     private var lastToastAt = 0L
 
@@ -175,6 +178,7 @@ object PlusReader {
     private fun prepareChapter(activity: ReaderActivity, from: ReaderPage) {
         val chapter = from.chapter
         synchronized(preparing) {
+            openedAt.getOrPut(chapter) { from.index }
             if (preparing[chapter]?.isActive == true) return
             preparing[chapter] = activity.lifecycleScope.launch(Dispatchers.IO) {
                 val graph = Plus.graph(activity)
@@ -253,6 +257,9 @@ object PlusReader {
             }.ifEmpty { null },
             mangaDescription = manga.description,
             mangaGenres = manga.genre.orEmpty(),
+            // Pages come in as their images finish loading, not in reading order: the page opened
+            // says where reading starts (in Kirara page 8 came in first and pages 2–5 were drawn last)
+            readingFrom = synchronized(preparing) { openedAt[page.chapter] },
         )
     }
 
