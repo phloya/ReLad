@@ -81,6 +81,7 @@ Workflow Mihon `build.yml` (сборка, тесты, стиль кода на �
 | `app/.../presentation/reader/ReaderPageActionsDialog.kt` | Параметр `plusActions` (кнопки в ряд после «Сохранить») | Кнопка «Перевести заново» (эту страницу или всю главу) в меню долгого нажатия на страницу |
 | `app/.../ui/reader/ReaderActivity.kt` → `ReaderPageActionsDialog(...)` | `plusActions = { PlusPageActions(...) }` | То же |
 | `app/.../presentation/reader/appbars/ReaderBottomBar.kt` | `PlusReaderButton()` перед кнопкой настроек | Переключение «оригинал / перевод» прямо в читалке; кнопка видна, только пока включена функция Re:Lad |
+| `app/.../ui/reader/ReaderViewModel.kt` → `canLoadAhead()` | `\|\| PlusReader.loadsWholeChapter(context)` | При «переводить всю главу» Mihon загружает все страницы онлайн-главы и по мобильному интернету. Иначе он брал только 4 следующие, и перевод вставал на «6 из 15», пока не долистаешь |
 
 ## Наши файлы (конфликтов с Mihon не бывает)
 

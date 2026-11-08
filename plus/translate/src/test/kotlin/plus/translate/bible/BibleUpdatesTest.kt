@@ -67,6 +67,40 @@ class BibleUpdatesTest {
     }
 
     @Test
+    fun `another romanization of a known name keeps the first translation and becomes an alias`() {
+        val first = BibleUpdates.apply(empty, page(Character("Yoo Joonghyeok", "Ю Чжунхёк")), 10, "259", 0)
+        val later = BibleUpdates.apply(first, page(Character("YOO JOONGHYUK", "Ю Чунхёк")), 10, "259", 9)
+
+        val character = later.characters.single()
+        character.name shouldBe "Ю Чжунхёк"
+        character.aliases shouldBe listOf(Alias("YOO JOONGHYUK", "Ю Чжунхёк"))
+    }
+
+    @Test
+    fun `look-alike names stay different people`() {
+        val first = BibleUpdates.apply(empty, page(Character("Biyu", "Бию"), Character("Minho", "Минхо")), 10, "1", 0)
+        val later = BibleUpdates.apply(
+            first,
+            page(Character("Bihyung", "Бихён"), Character("Minha", "Минха")),
+            10,
+            "1",
+            1,
+        )
+
+        later.characters.map { it.name } shouldBe listOf("Бию", "Минхо", "Бихён", "Минха")
+    }
+
+    @Test
+    fun `a romanized name is found on the page in another romanization, as whole words`() {
+        BibleUpdates.mentionsOriginal("THERE'S NO WAY YOO JOONGHYUK WOULD KNOW.", "Yoo Joonghyeok") shouldBe true
+        BibleUpdates.mentionsOriginal("HEEWON-SSI!! OVER HERE!", "Hiwon") shouldBe true
+        BibleUpdates.mentionsOriginal("HYEWON-SSI!! OVER HERE!", "Heewon") shouldBe false
+        BibleUpdates.mentionsOriginal("JUNG HEEWON AND LEE JIHYE", "Jung Heewon") shouldBe true
+        BibleUpdates.mentionsOriginal("CHIEF BIHYUNG", "Biyu") shouldBe false
+        BibleUpdates.mentionsOriginal("Jinwoo's sword", "Jinwoo") shouldBe true
+    }
+
+    @Test
     fun `terms are added once, and a character's name is not a term`() {
         val updated = BibleUpdates.apply(
             empty,

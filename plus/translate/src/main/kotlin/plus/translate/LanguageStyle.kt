@@ -49,7 +49,9 @@ class LanguageStyle(
                     - No calques, anglicisms or clumsy literal phrases; read it as Russian prose.
                     - Speaking names and attack names may be translated by meaning when the original plays on it.
                     - Sound effects: established Russian words (БАМ, БАХ, ГРОХ, ТУК-ТУК, ШУРХ); no invented
-                      ones; a short word for a silent action (кивок); silence is «…».
+                      ones; a short word for a silent action (кивок); silence is «…». Sleep and snoring (Zzz,
+                      ぐー) is «Хр-р…», never «Ззз»: in capitals it reads as the number 333.
+                    - The same sound or word the same way on every page (one spelling: доккэби, not also докэби).
                 """.trimIndent(),
                 names = mapOf(
                     SourceLanguage.Japanese to "Polivanov system, as licensed Russian editions use it: し си, ち ти, " +
