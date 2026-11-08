@@ -96,8 +96,6 @@ class PageTranslator(
         val page = kept ?: translate(input, size, context, s, provider).also { translated ->
             keptKey?.let { translations?.put(it, json.encodeToString(TranslatedPage.serializer(), translated)) }
         }
-        // Counted as soon as the text is in: drawing is quick and can be done again at no cost
-        versions?.pageTranslated(context.chapterId, context.pageIndex, textSignature(s, provider))
         val regions = page.regions
         val translated = System.nanoTime()
 
@@ -123,6 +121,9 @@ class PageTranslator(
             encoded to placed
         }
 
+        // Counted once drawn, as the reader sees it: counted on the text alone, a chapter closed midway
+        // showed 11 of 12 with 5 pages drawn
+        versions?.pageTranslated(context.chapterId, context.pageIndex, textSignature(s, provider))
         // The boxes as put onto the page's text go with the image; the kept translation keeps the
         // model's, so a better placement later redraws from them
         return ProcessedPage(
