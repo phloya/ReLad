@@ -70,3 +70,33 @@ class OrderedGate(private val permits: Int) {
     /** Blocks running now. */
     fun busy(): Int = synchronized(lock) { permits - free }
 }
+
+/**
+ * Tickets for [OrderedGate] in reading order: a chapter's pages from the first one asked for (the
+ * page open in the reader) to the end, then the ones before it; the chapter open first goes first,
+ * the next one ahead after it. Pages come in the order their images finish loading, which is not
+ * the order they are read in.
+ */
+class ReadingOrder {
+
+    private class Start(val order: Long, val pageIndex: Int)
+
+    private val starts = java.util.concurrent.ConcurrentHashMap<Long, Start>()
+    private val chapters = java.util.concurrent.atomic.AtomicLong()
+
+    fun ticket(chapterId: Long, pageIndex: Int): Long {
+        val start = starts.computeIfAbsent(chapterId) { Start(chapters.incrementAndGet(), pageIndex) }
+        val inChapter = if (pageIndex >= start.pageIndex) {
+            (pageIndex - start.pageIndex).toLong()
+        } else {
+            BEFORE_START + (start.pageIndex - pageIndex)
+        }
+        return start.order * CHAPTER + inChapter
+    }
+
+    private companion object {
+        /** Pages before the first one asked for come after every page from it on. */
+        const val BEFORE_START = 100_000L
+        const val CHAPTER = 1_000_000L
+    }
+}

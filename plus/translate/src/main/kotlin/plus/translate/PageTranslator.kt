@@ -16,7 +16,6 @@ import plus.core.pipeline.PageProcessor
 import plus.core.pipeline.ProcessedPage
 import plus.translate.bible.BibleStore
 import java.io.IOException
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * The translation step of the page pipeline: one request to a multimodal model finds and
@@ -72,8 +71,8 @@ class PageTranslator(
     }
 
     override suspend fun process(input: ByteArray, context: PageContext): ProcessedPage {
-        // Drawn in the order pages are asked for: the reader's page and the ones after it first
-        val ticket = tickets.incrementAndGet()
+        // Drawn in reading order: the reader's page and the ones after it first
+        val ticket = readingOrder.ticket(context.chapterId, context.pageIndex)
         val s = settings()
         // Already in the reader's language (a Russian edition read in Russian): nothing to pay for
         if (sameLanguage(context.sourceLanguage, s.language.code)) return ProcessedPage(input)
@@ -274,7 +273,7 @@ class PageTranslator(
     }
 
     private val rendering = OrderedGate(RENDER_AT_ONCE)
-    private val tickets = AtomicLong()
+    private val readingOrder = ReadingOrder()
 
     private fun seconds(from: Long, to: Long = System.nanoTime()) = "%.1f s".format((to - from) / 1e9)
 

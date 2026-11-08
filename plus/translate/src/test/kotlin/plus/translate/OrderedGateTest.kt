@@ -61,4 +61,17 @@ class OrderedGateTest {
         gate.busy() shouldBe 0
         gate.withPermit(2) { gate.busy() } shouldBe 1
     }
+
+    @Test
+    fun `reading order starts at the page opened, then the pages before it, then the next chapter`() {
+        val order = ReadingOrder()
+        val opened = order.ticket(chapterId = 7, pageIndex = 4)
+        val later = order.ticket(chapterId = 7, pageIndex = 9)
+        val before = order.ticket(chapterId = 7, pageIndex = 1)
+        val nextChapter = order.ticket(chapterId = 8, pageIndex = 0)
+        val afterOpened = order.ticket(chapterId = 7, pageIndex = 5)
+
+        listOf(opened, afterOpened, later, before, nextChapter) shouldBe
+            listOf(opened, afterOpened, later, before, nextChapter).sorted()
+    }
 }
