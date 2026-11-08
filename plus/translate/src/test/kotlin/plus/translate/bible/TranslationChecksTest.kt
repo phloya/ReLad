@@ -53,6 +53,41 @@ class TranslationChecksTest {
     }
 
     @Test
+    fun `a name spelled another way in an English original is still checked`() {
+        val english = bible.copy(characters = listOf(Character("Yoo Joonghyeok", "Ю Чжунхёк")))
+        val regions = listOf(
+            line("YOO JOONGHYEOK WASN'T SUPPOSED TO", "Ю Чжунхёку не должны были"),
+            line("THERE'S NO WAY YOO JOONGHYUK WOULD KNOW.", "Ну, Ю Чунхёк этого точно не знает."),
+        )
+        TranslationChecks.check(regions, english) shouldBe
+            listOf(TranslationChecks.Problem(1, TranslationChecks.Kind.WrongName, "Ю Чжунхёк"))
+    }
+
+    @Test
+    fun `a word half in Latin letters is flagged`() {
+        val regions = listOf(
+            line("THEY'RE BUILDING UP FORCES IN GYEONGGI.", "Они стягивают силы в Кёнгgи."),
+            line("S-RANK HUNTER", "Охотник S-ранга"),
+            line("OK!", "OK!"),
+        )
+        TranslationChecks.check(regions, bible) shouldBe
+            listOf(TranslationChecks.Problem(0, TranslationChecks.Kind.MixedScript))
+    }
+
+    @Test
+    fun `a line copied in English into a Russian page is flagged, names and tags are not`() {
+        val regions = listOf(
+            line("THE POLICE ARE ALWAYS LOOKING OUT FOR YOU.", "THE POLICE ARE ALWAYS LOOKING OUT FOR YOU."),
+            line("HP 100/100", "HP 100/100"),
+            line("POLICE", "POLICE"),
+            line("SUNG JINWOO", "Сон Джину"),
+        )
+        TranslationChecks.check(regions, bible) shouldBe
+            listOf(TranslationChecks.Problem(0, TranslationChecks.Kind.Untranslated))
+        TranslationChecks.check(regions.take(1), bible.copy(language = "en")).shouldBeEmpty()
+    }
+
+    @Test
     fun `stems allow Russian endings but not other words`() {
         TranslationChecks.mentions("с Корпусом истребителей демонов", "Корпус истребителей демонов") shouldBe true
         TranslationChecks.mentions("с Отрядом истребителей", "Корпус истребителей демонов") shouldBe false

@@ -1,6 +1,7 @@
 package plus.app.translate
 
 import android.text.format.Formatter
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
@@ -52,6 +53,8 @@ object TranslateFeature : PlusFeature {
         bibles = bibles(graph),
         fonts = { LetteringFonts.load(graph.context.assets) },
         translations = translations(graph),
+        // Timings only, no page text: what a slow chapter waits for (adb logcat -s ReLad)
+        log = { Log.i("ReLad", it) },
     )
 
     override fun settingsScreen(): Screen = TranslateSettingsScreen()

@@ -32,6 +32,8 @@ class PageTranslator(
     private val fonts: () -> LetteringFonts = { LetteringFonts.SYSTEM },
     /** Translations kept for good: a page translated once is only drawn again. `null`: none kept. */
     private val translations: TranslationStore? = null,
+    /** Where each page's timings go (the app's log), to see what a slow chapter waits for. */
+    private val log: (String) -> Unit = {},
 ) : PageProcessor {
 
     private val text = PageTextTranslator(bibles)
@@ -80,13 +82,16 @@ class PageTranslator(
         val keptKey = translations?.let { TranslationStore.key(input, textSignature(s, provider)) }
         val kept = keptKey?.let { translations?.get(it) }
             ?.let { runCatching { json.decodeFromString(TranslatedPage.serializer(), it) }.getOrNull() }
+        val started = System.nanoTime()
         val page = kept ?: translate(input, size, context, s, provider).also { translated ->
             keptKey?.let { translations?.put(it, json.encodeToString(TranslatedPage.serializer(), translated)) }
         }
         val regions = page.regions
+        val translated = System.nanoTime()
 
         // A few pages at a time: a long strip at full size takes tens of megabytes while it is drawn
         val image = rendering.withPermit {
+            val drawStarted = System.nanoTime()
             // Full size up to 16 MP whatever the shape (a 4096 side limit made 800 × 14 820 strips 200 px
             // wide and blurry); larger pages are decoded smaller, boxes are in original pixels
             val bitmap = PageBitmaps.decode(input, maxSide = MAX_RENDER_SIDE, maxPixels = MAX_RENDER_PIXELS)
@@ -96,7 +101,15 @@ class PageTranslator(
                 regions.scaledTo(bitmap.width.toFloat() / size.width)
             }
             PageTypesetter.render(bitmap, scaled, s.language.code, lettering)
-            PageBitmaps.encode(bitmap, Bitmap.CompressFormat.JPEG, quality = 95).also { bitmap.recycle() }
+            PageBitmaps.encode(bitmap, Bitmap.CompressFormat.JPEG, quality = 95).also {
+                bitmap.recycle()
+                log(
+                    "page ${context.pageIndex + 1} of ${context.chapterName}: " +
+                        (if (kept != null) "kept translation" else "translated in ${seconds(started, translated)}") +
+                        ", waited to draw ${seconds(translated, drawStarted)}, drawn in ${seconds(drawStarted)}" +
+                        ", ${regions.size} lines, ${size.width} × ${size.height}",
+                )
+            }
         }
 
         return ProcessedPage(image = image, metadata = json.encodeToString(TranslatedPage.serializer(), page))
@@ -109,9 +122,12 @@ class PageTranslator(
         s: Settings,
         provider: AiProviderConfig,
     ): TranslatedPage {
+        val started = System.nanoTime()
+        val images = modelImages(input, size)
+        val asked = System.nanoTime()
         val result = text.translate(
             client = clientFor(provider),
-            images = modelImages(input, size),
+            images = images,
             width = size.width,
             height = size.height,
             context = context,
@@ -119,6 +135,11 @@ class PageTranslator(
             translateSoundEffects = s.translateSoundEffects,
             // Claude 4.7+ answers in pixels of the image (and errs when asked for 0–1000); Gemini in 0–1000
             units = if (provider.type == AiProviderType.Anthropic) BoxUnits.Pixels else BoxUnits.PerMille,
+        )
+        log(
+            "page ${context.pageIndex + 1} of ${context.chapterName}: ${images.size} image(s), " +
+                "${images.sumOf { it.image.bytes.size } / 1024} KB, made in ${seconds(started, asked)}; " +
+                "model ${seconds(asked)}, ${result.fixedLines} line(s) fixed",
         )
         return TranslatedPage(
             language = s.language.code,
@@ -248,6 +269,8 @@ class PageTranslator(
     }
 
     private val rendering = Semaphore(RENDER_AT_ONCE)
+
+    private fun seconds(from: Long, to: Long = System.nanoTime()) = "%.1f s".format((to - from) / 1e9)
 
     private companion object {
         const val MAX_MODEL_SIDE = 2048

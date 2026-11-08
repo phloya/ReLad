@@ -1,5 +1,6 @@
 package plus.app.reader
 
+import android.content.Context
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import eu.kanade.tachiyomi.source.model.Page
@@ -84,6 +85,15 @@ object PlusReader {
     val showOriginal: StateFlow<Boolean> = _showOriginal.asStateFlow()
 
     fun toggleOriginal() = _showOriginal.update { !it }
+
+    /**
+     * Whether a feature works on the whole open chapter (translation: "the whole chapter at once"):
+     * Mihon then loads all its online pages, not only the next few on mobile data.
+     */
+    fun loadsWholeChapter(context: Context): Boolean {
+        val graph = Plus.graph(context)
+        return graph.features.any { it.preparesWholeChapter(graph) }
+    }
 
     /** Pages to show again at once (translated again: the original until the new version is ready). */
     private val reloads = MutableSharedFlow<ReaderPage>(extraBufferCapacity = RELOADS_BUFFER)

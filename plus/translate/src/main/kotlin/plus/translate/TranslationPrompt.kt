@@ -16,7 +16,10 @@ import plus.translate.bible.TranslationChecks
  */
 object TranslationPrompt {
 
-    /** Bump when the prompt or the answer format changes: cached translations are then redone. */
+    /**
+     * Bump when old answers can no longer be read: every kept translation is then paid for again.
+     * A better prompt alone doesn't need it: old pages get it through Translate again.
+     */
     const val VERSION = 4
 
     fun rules(
@@ -51,13 +54,20 @@ object TranslationPrompt {
             - Names and terms from the Characters and Glossary lists: use exactly that form (with the endings
               grammar needs). For a new name or term, choose a form by the rules below, with later chapters in
               mind, and report it. Western or invented names written in kana or hanzi: restore the intended
-              name (アーサー is Arthur), don't transliterate the sounds.
+              name (アーサー is Arthur), don't transliterate the sounds. A name the page spells another way
+              than the list (another romanization, another script) is still the listed one: same translation.
+              Names that differ are different people even when they look alike (Biyu and Bihyung, Minho and
+              Minha): never give one the other's translation.
             - Genre vocabulary (cultivation realms, martial sects and ranks, game system windows, isekai terms):
               use the terms fans of the genre know in ${language.promptName}, and keep them in the Glossary.
             - Translate every line and add nothing: no explanations, translator's notes or brackets, no lines
               the original doesn't have. An ellipsis stays an ellipsis; don't finish the sentence for the author.
             - Fit the bubble: as short as a native writer would say it. One bubble's text stays in its bubble;
-              a sentence split over bubbles or pages stays split in the same place.
+              a sentence split over bubbles or pages stays split in the same place. Translate such a sentence
+              whole first, then split it: each part must continue the grammar of the part before it (who
+              does it, case, number), not read as a new sentence.
+            - No quotation marks around a whole line unless the original has them: a bubble is speech
+              already, and a flashback, a memory or a voice from afar is not a quote.
             - Jokes and wordplay: recreate the effect in ${language.promptName} rather than the literal words; if
               that is impossible, keep the meaning the plot needs.
             - ${soundEffectRule(translateSoundEffects, language)}
@@ -84,9 +94,12 @@ object TranslationPrompt {
               lines; separate bubbles are separate regions, even when one sentence runs on from one to the next.
             - "new_characters": named characters who appear or are named on this page and are not in the Characters
               list yet, or are listed without gender or speech and now show it:
-              "original" in the source script, "name" as you wrote it, "gender" male/female/other/unknown,
+              "original" exactly as this page's text writes it (on an English page the English spelling,
+              "Yoo Joonghyuk", not 유중혁), "name" as you wrote it, "gender" male/female/other/unknown,
               "speech": how they talk, in a few words (register, how they refer to themselves, verbal tics);
-              "" if they don't speak yet.
+              "" if they don't speak yet. A listed character whose name this page writes in a form the list
+              doesn't have: give the listed "original" and "name", and the page's form in
+              "aliases":[{"original":"…","translation":"…"}].
             - "new_terms": names of places, groups, techniques, ranks, items, creatures or catchphrases not in the
               Glossary that should stay the same later. "kind": place, organization, technique, title, item,
               creature, catchphrase or other. Ordinary words are not terms.
@@ -173,6 +186,9 @@ object TranslationPrompt {
             append(
                 when (problem.kind) {
                     TranslationChecks.Kind.Untranslated -> "part of it is left untranslated in the original script."
+                    TranslationChecks.Kind.MixedScript ->
+                        "a word mixes two alphabets (part of a name left in Latin letters): write it whole " +
+                            "in the translation's alphabet, the same way as elsewhere on the page."
                     TranslationChecks.Kind.WrongName ->
                         "the notes say to write \"${problem.expected}\" here (with the endings grammar needs). " +
                             "If the line really refers to someone or something else, keep it as it is."

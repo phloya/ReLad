@@ -35,14 +35,33 @@ object LetterCase {
         if (line.length < 2 || QUOTES.any { (open, _) -> original.trim().startsWith(open) }) return translation
         for ((open, close) in QUOTES) {
             if (!line.startsWith(open)) continue
-            val end = line.lastIndexOf(close)
-            // One pair around the whole line, perhaps with the line's own "!!" or "?" after it
-            if (end <= 0 || line.indexOf(open, 1) in 1 until end) continue
-            val tail = line.substring(end + 1)
+            val end = closing(line, open, close) ?: continue
+            // One pair around the whole line, perhaps with the line's own "!!" or "?" after it; quotes
+            // inside it stay («Ну, до конца «Способов разрушения»,» loses only the outer pair)
+            val tail = line.substring(end + close.length)
             if (tail.any { it !in TRAILING }) continue
             return (line.substring(open.length, end) + tail).trim()
         }
         return translation
+    }
+
+    /** Where the quote opened at the start of [line] closes: by nesting for «», the last one for "". */
+    private fun closing(line: String, open: String, close: String): Int? {
+        if (open == close) {
+            val end = line.lastIndexOf(close)
+            // Same mark both ways: a third one makes the pairs unclear
+            return end.takeIf { it > 0 && line.indexOf(open, open.length) == end }
+        }
+        var depth = 0
+        var i = 0
+        while (i < line.length) {
+            when {
+                line.startsWith(open, i) -> depth++
+                line.startsWith(close, i) -> if (--depth == 0) return i
+            }
+            i++
+        }
+        return null
     }
 
     private val QUOTES = listOf("«" to "»", "„" to "“", "“" to "”", "\"" to "\"", "'" to "'", "「" to "」", "『" to "』")

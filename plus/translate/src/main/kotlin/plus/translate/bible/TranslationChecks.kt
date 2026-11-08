@@ -1,6 +1,7 @@
 package plus.translate.bible
 
 import plus.translate.TextRegion
+import java.lang.Character.UnicodeScript
 
 /**
  * Free checks of a translated page, done on the phone: lines where the model left the original
@@ -17,15 +18,24 @@ object TranslationChecks {
 
         /** A name or term from the notes is in the original but its chosen translation is not. */
         WrongName,
+
+        /** A word half in one alphabet and half in another ("Кёнгgи"): a name the model didn't finish. */
+        MixedScript,
     }
 
     fun check(regions: List<TextRegion>, bible: TitleBible): List<Problem> {
         val keepsCjk = bible.language.substringBefore('-').lowercase() in CJK_LANGUAGES
         val names = expectedNames(bible)
         val problems = mutableListOf<Problem>()
+        val cyrillic = bible.language.substringBefore('-').lowercase() in CYRILLIC_LANGUAGES
         regions.forEachIndexed { index, region ->
-            if (!keepsCjk && region.translation.any(BibleUpdates::isCjk)) {
+            val leftLatin = cyrillic && leftInLatin(region.text, region.translation)
+            if ((!keepsCjk && region.translation.any(BibleUpdates::isCjk)) || leftLatin) {
                 problems += Problem(index, Kind.Untranslated)
+                return@forEachIndexed
+            }
+            if (WORD.findAll(region.translation).any { mixesScripts(it.value) }) {
+                problems += Problem(index, Kind.MixedScript)
                 return@forEachIndexed
             }
             names.firstOrNull { (source, target) ->
@@ -61,7 +71,43 @@ object TranslationChecks {
         }
     }
 
+    /** Letters of more than one alphabet in one word. */
+    internal fun mixesScripts(word: String): Boolean {
+        var latin = false
+        var other = false
+        for (c in word) {
+            if (!c.isLetter()) continue
+            when (UnicodeScript.of(c.code)) {
+                UnicodeScript.LATIN -> latin = true
+                UnicodeScript.CYRILLIC, UnicodeScript.GREEK -> other = true
+                else -> Unit
+            }
+        }
+        return latin && other
+    }
+
+    /**
+     * A line from a Latin-script page copied, not translated, into a Cyrillic one: mostly Latin
+     * letters and the same as the original. Short tags (OK, HP, S-rank) are left alone.
+     */
+    private fun leftInLatin(original: String, translation: String): Boolean {
+        val latin = translation.count {
+            it.isLetter() &&
+                UnicodeScript.of(it.code) == UnicodeScript.LATIN
+        }
+        val letters = translation.count { it.isLetter() }
+        if (latin < MIN_LATIN_LETTERS || latin * 2 < letters) return false
+        val words = WORD.findAll(translation.lowercase()).map { it.value }.filter { it.length > 2 }.toSet()
+        val source = WORD.findAll(original.lowercase()).map { it.value }.toSet()
+        return words.isNotEmpty() && words.count { it in source } * 2 >= words.size
+    }
+
+    private val WORD = Regex("[\\p{L}\\p{M}]+")
     private val CJK_LANGUAGES = setOf("ja", "ko", "zh")
+    private val CYRILLIC_LANGUAGES = setOf("ru", "uk", "be", "bg", "sr", "mk", "kk", "ky", "tg", "mn")
+
+    /** Fewer Latin letters than this are tags and abbreviations, not a line left in English. */
+    private const val MIN_LATIN_LETTERS = 8
 
     /** Words longer than this may lose up to [ENDING] letters to grammar. */
     private const val STEM_FROM = 4

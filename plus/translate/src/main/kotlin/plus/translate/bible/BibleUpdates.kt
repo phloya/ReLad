@@ -1,6 +1,7 @@
 package plus.translate.bible
 
 import java.text.Normalizer
+import kotlin.math.abs
 
 /** What the model noticed on a page besides the translation itself. */
 data class PageFindings(
@@ -59,7 +60,9 @@ object BibleUpdates {
         val result = known.toMutableList()
         for (candidate in found) {
             val clean = candidate.cleaned() ?: continue
-            val index = result.indexOfFirst { existing -> existing.keys().any { it in clean.keys() } }
+            val index = result.indexOfFirst { existing ->
+                existing.spellings().any { known -> clean.spellings().any { sameName(known, it) } }
+            }
             if (index < 0) {
                 if (result.size < MAX_CHARACTERS) {
                     result += clean.copy(locked = false, firstSeen = chapterName, lastSeenChapter = chapterId)
@@ -69,12 +72,20 @@ object BibleUpdates {
             val existing = result[index]
             if (existing.locked) continue
             val knownAliases = existing.aliases.map { key(it.original) }.toSet() + key(existing.original)
+            // Another spelling of a known name ("Joonghyuk" for "Joonghyeok", or the hangul): it keeps the
+            // translation chosen first and is matched exactly from now on
+            val respelled = if (key(clean.original) in knownAliases) {
+                emptyList()
+            } else {
+                listOf(Alias(clean.original, existing.name))
+            }
+            val newAliases = (respelled + clean.aliases).distinctBy { key(it.original) }
             result[index] = existing.copy(
                 gender = if (existing.gender == Gender.Unknown) clean.gender else existing.gender,
                 speech = existing.speech.ifBlank { clean.speech },
                 addresses = existing.addresses.ifBlank { clean.addresses },
                 notes = existing.notes.ifBlank { clean.notes },
-                aliases = existing.aliases + clean.aliases.filter { key(it.original) !in knownAliases },
+                aliases = existing.aliases + newAliases.filter { key(it.original) !in knownAliases },
             )
         }
         return result
@@ -157,11 +168,54 @@ object BibleUpdates {
         val wanted = key(original)
         if (wanted.length < MIN_MATCH) return false
         if (original.any(::isCjk)) return key(text).contains(wanted)
-        val words = Normalizer.normalize(original, Normalizer.Form.NFKC).lowercase().trim()
-            .split(Regex("\\s+")).joinToString("\\s+") { Regex.escape(it) }
-        return Regex("(?<![\\p{L}\\p{N}])$words(?![\\p{L}\\p{N}])")
-            .containsMatchIn(Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase())
+        val name = words(original)
+        if (name.isEmpty()) return false
+        val found = words(text)
+        return (0..found.size - name.size).any { start ->
+            name.indices.all { sameWord(found[start + it], name[it]) }
+        }
     }
+
+    /**
+     * The same name, perhaps spelled another way: scanlators romanize one Korean, Japanese or Chinese
+     * name differently from page to page (YOO JOONGHYEOK and YOO JOONGHYUK in one chapter).
+     */
+    internal fun sameName(a: String, b: String): Boolean {
+        if (key(a) == key(b)) return true
+        if (a.any(::isCjk) || b.any(::isCjk)) return false
+        val x = words(a)
+        val y = words(b)
+        return x.isNotEmpty() && x.size == y.size && x.indices.all { sameWord(x[it], y[it]) }
+    }
+
+    /**
+     * One word of a romanized name, allowing for the vowels romanizations disagree on: "joonghyuk"
+     * and "joonghyeok", "heewon" and "hiwon". Short words and words with other consonants or another
+     * first or last letter stay different, so "Minho" is not "Minha" and "Biyu" is not "Bihyung".
+     */
+    internal fun sameWord(a: String, b: String): Boolean {
+        if (a == b) return true
+        if (a.length < VARIANT_FROM || b.length < VARIANT_FROM || abs(a.length - b.length) > VARIANT_LENGTH) {
+            return false
+        }
+        if (a.first() != b.first() || a.last() != b.last()) return false
+        if (!a.all { it in 'a'..'z' } || !b.all { it in 'a'..'z' }) return false
+        return a.filterNot { it in VOWELS } == b.filterNot { it in VOWELS }
+    }
+
+    /** Letters-and-digits words, same width and case: "Jinwoo's" has "jinwoo". */
+    private fun words(
+        text: String,
+    ): List<String> = WORD.findAll(Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase())
+        .map { it.value }
+        .toList()
+
+    private val WORD = Regex("[\\p{L}\\p{N}]+")
+    private const val VOWELS = "aeiou"
+
+    /** Romanized words this long or longer may differ in vowels, by at most [VARIANT_LENGTH] letters. */
+    private const val VARIANT_FROM = 5
+    private const val VARIANT_LENGTH = 2
 
     /** Kana, Hangul and Han characters. */
     internal fun isCjk(c: Char): Boolean = c.code in 0x3040..0x30FF || // hiragana, katakana
@@ -173,7 +227,9 @@ object BibleUpdates {
         c.code in 0xFF66..0xFF9F // half-width katakana
 
     /** All spellings a character is matched by. */
-    internal fun Character.keys(): List<String> = (listOf(original) + aliases.map { it.original }).map(::key)
+    internal fun Character.keys(): List<String> = spellings().map(::key)
+
+    private fun Character.spellings(): List<String> = listOf(original) + aliases.map { it.original }
 
     /** Same width, case and spacing for matching: "Ｋａｉ" and "kai", "東 京" and "東京" match. */
     internal fun key(text: String): String =

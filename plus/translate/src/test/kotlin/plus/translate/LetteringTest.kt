@@ -159,6 +159,12 @@ class LetteringTest {
         LetterCase.withoutQuotes("Он сказал «нет» и ушёл", "HE SAID \"NO\"") shouldBe "Он сказал «нет» и ушёл"
         LetterCase.withoutQuotes("«Да» или «нет»", "YES OR NO") shouldBe "«Да» или «нет»"
         LetterCase.withoutQuotes("«Нет»", "\"NO\"") shouldBe "«Нет»"
+        LetterCase.withoutQuotes(
+            "«Ну, до конца «Способов разрушения»,»",
+            "WELL, UNTIL 'WAYS OF DESTRUCTION' ENDED,",
+        ) shouldBe
+            "Ну, до конца «Способов разрушения»,"
+        LetterCase.withoutQuotes("«Да» и «нет»!", "YES AND NO!") shouldBe "«Да» и «нет»!"
     }
 
     @Test
