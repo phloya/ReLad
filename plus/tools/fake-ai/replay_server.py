@@ -11,6 +11,9 @@ or an empty list of fixes.
 --claude: the run was on Claude (pixel boxes, x first); they are turned into the 0-1000, y-first
 boxes the app expects from an OpenAI-format model (needs Pillow).
 
+--delay <seconds>: answer each page after this long, as a real model does; with it the server
+prints how many requests it holds at once, to see how many pages the app really sends together.
+
 In the app: AI provider "OpenAI-compatible", address http://10.0.2.2:8765/v1, any model and key.
 """
 import base64
@@ -26,7 +29,15 @@ if "--port" in args:
     i = args.index("--port")
     port = int(args[i + 1])
     del args[i:i + 2]
+delay = 0.0
+if "--delay" in args:
+    i = args.index("--delay")
+    delay = float(args[i + 1])
+    del args[i:i + 2]
 out_dir, chapter_dirs = args[0], args[1:]
+
+in_flight = {"now": 0, "most": 0}
+in_flight_lock = __import__("threading").Lock()
 
 pixels_from = "--claude" in args
 if pixels_from:
@@ -80,7 +91,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             match = answers.get(hashlib.sha256(images[0]).hexdigest())
             last_page["value"] = match
             text = match[1] if match else '{"regions":[]}'
-            print(f"page {match[0] if match else 'unknown'}", flush=True)
+            with in_flight_lock:
+                in_flight["now"] += 1
+                in_flight["most"] = max(in_flight["most"], in_flight["now"])
+                now, most = in_flight["now"], in_flight["most"]
+            print(f"page {match[0] if match else 'unknown'}: {now} at once (most {most})", flush=True)
+            __import__("time").sleep(delay)
+            with in_flight_lock:
+                in_flight["now"] -= 1
         else:
             match = last_page.get("value")
             text = match[2] if match and match[2] else '{"fixes":[]}'
