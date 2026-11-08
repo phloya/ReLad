@@ -1,5 +1,6 @@
 package plus.translate.bible
 
+import plus.translate.RegionType
 import plus.translate.TextRegion
 import java.lang.Character.UnicodeScript
 
@@ -10,7 +11,8 @@ import java.lang.Character.UnicodeScript
  */
 object TranslationChecks {
 
-    data class Problem(val index: Int, val kind: Kind, val expected: String = "")
+    /** [next]: for [Kind.SplitSentence], the line the sentence goes on in. */
+    data class Problem(val index: Int, val kind: Kind, val expected: String = "", val next: Int? = null)
 
     enum class Kind {
         /** Japanese, Korean or Chinese characters left in a translation into another script. */
@@ -21,6 +23,13 @@ object TranslationChecks {
 
         /** A word half in one alphabet and half in another ("Кёнгgи"): a name the model didn't finish. */
         MixedScript,
+
+        /**
+         * The original breaks off without an end mark and goes on in the next bubble ("THE REAL ONE
+         * GOT FIRED" / "BECAUSE THE FAKE IS ACTING UP"): the model often translates the parts as two
+         * sentences that don't join, so the two go back together.
+         */
+        SplitSentence,
     }
 
     fun check(regions: List<TextRegion>, bible: TitleBible): List<Problem> {
@@ -42,8 +51,35 @@ object TranslationChecks {
                 BibleUpdates.mentionsOriginal(region.text, source) && !mentions(region.translation, target)
             }?.let { (_, target) -> problems += Problem(index, Kind.WrongName, target) }
         }
+        regions.zipWithNext().forEachIndexed { index, (first, next) ->
+            if (splitsSentence(first, next)) problems += Problem(index, Kind.SplitSentence, next = index + 1)
+        }
         return problems
     }
+
+    /**
+     * Whether [first]'s original stops mid-sentence and [next] goes on with it: no end mark, only a
+     * letter, digit or comma at the end. Latin-script originals only (English scans), where end marks
+     * are reliable; Japanese and Korean bubbles often have none at all.
+     */
+    internal fun splitsSentence(first: TextRegion, next: TextRegion): Boolean {
+        if (first.type !in SPEECH || next.type !in SPEECH) return false
+        if (!latin(first.text) || !latin(next.text)) return false
+        val last = first.text.trimEnd().lastOrNull() ?: return false
+        return last.isLetterOrDigit() || last in SENTENCE_GOES_ON
+    }
+
+    private fun latin(text: String): Boolean {
+        val letters = text.filter { it.isLetter() }
+        if (letters.length < MIN_SPLIT_LETTERS) return false
+        return letters.count { UnicodeScript.of(it.code) == UnicodeScript.LATIN } * 10 >= letters.length * 9
+    }
+
+    private val SPEECH = setOf(RegionType.Bubble, RegionType.Caption)
+    private const val SENTENCE_GOES_ON = ",;:"
+
+    /** Shorter lines ("HM", "AH") are cries, not halves of a sentence. */
+    private const val MIN_SPLIT_LETTERS = 3
 
     /** original → wanted translation, for every name and term. */
     private fun expectedNames(bible: TitleBible): List<Pair<String, String>> {
