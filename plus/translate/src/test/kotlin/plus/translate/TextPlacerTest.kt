@@ -100,6 +100,27 @@ class TextPlacerTest {
     }
 
     @Test
+    fun `text the answer left out is found, text it has is not`() {
+        val page = Page()
+        page.bubble(150, 150, 110, 70)
+        page.bubble(430, 500, 120, 80)
+        val first = page.text(150, 115, "WHERE DID", "THAT KID GO?")
+        val second = page.text(430, 465, "I COULDN'T", "DO A THING", "AT ALL!!")
+
+        // The answer has only the first bubble, its box a little off
+        val answer =
+            listOf(
+                region(Box(first.left + 20, first.top - 10, first.right + 30, first.bottom), "WHERE DID THAT KID GO?"),
+            )
+        val missed = MissedText.find(page.pixels, page.width, page.height, answer)
+
+        missed.shouldHaveSize(1)
+        missed.single().box.near(second) shouldBe true
+        MissedText.find(page.pixels, page.width, page.height, answer + region(second, "I COULDN'T DO A THING AT ALL!!"))
+            .shouldHaveSize(0)
+    }
+
+    @Test
     fun `a box beside its bubble moves onto the bubble's letters`() {
         val page = Page()
         page.bubble(150, 150, 110, 70)
