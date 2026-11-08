@@ -32,6 +32,11 @@ class PageTranslator(
     private val translations: TranslationStore? = null,
     /** Where each page's timings go (the app's log), to see what a slow chapter waits for. */
     private val log: (String) -> Unit = {},
+    /**
+     * Which chapters the reader asked to translate, and which of their pages are done. `null`:
+     * every page is translated (tests, the live check).
+     */
+    private val versions: ChapterVersions? = null,
 ) : PageProcessor {
 
     private val text = PageTextTranslator(bibles)
@@ -58,7 +63,9 @@ class PageTranslator(
     private val json = Json
     private val lettering by lazy { fonts() }
 
-    override fun signature(context: PageContext): String {
+    override fun signature(context: PageContext): String? {
+        // A chapter shows its original until the reader asks for the translation
+        if (versions?.translates(context.chapterId) == false) return null
         val s = settings()
         return listOf(
             "v${TranslationPrompt.VERSION}",
@@ -75,7 +82,10 @@ class PageTranslator(
         val ticket = readingOrder.ticket(context.chapterId, context.pageIndex, context.readingFrom)
         val s = settings()
         // Already in the reader's language (a Russian edition read in Russian): nothing to pay for
-        if (sameLanguage(context.sourceLanguage, s.language.code)) return ProcessedPage(input)
+        if (sameLanguage(context.sourceLanguage, s.language.code)) {
+            s.provider?.let { versions?.pageTranslated(context.chapterId, context.pageIndex, textSignature(s, it)) }
+            return ProcessedPage(input)
+        }
         val provider = s.provider ?: throw NotConfiguredException()
         val size = PageBitmaps.size(input) ?: error("Not an image")
         // Translated before (the image was dropped from the cache, or the lettering changed): only draw
@@ -86,6 +96,8 @@ class PageTranslator(
         val page = kept ?: translate(input, size, context, s, provider).also { translated ->
             keptKey?.let { translations?.put(it, json.encodeToString(TranslatedPage.serializer(), translated)) }
         }
+        // Counted as soon as the text is in: drawing is quick and can be done again at no cost
+        versions?.pageTranslated(context.chapterId, context.pageIndex, textSignature(s, provider))
         val regions = page.regions
         val translated = System.nanoTime()
 
@@ -165,9 +177,16 @@ class PageTranslator(
 
     /** Translate again: the kept translation of this page goes, the model is asked anew. */
     override fun forget(input: ByteArray, context: PageContext) {
+        versions?.pageForgotten(context.chapterId, context.pageIndex)
         val s = settings()
         val provider = s.provider ?: return
         translations?.remove(TranslationStore.key(input, textSignature(s, provider)))
+    }
+
+    /** What pages translated with the current settings are kept under; `null` without a provider. */
+    fun textSignature(): String? {
+        val s = settings()
+        return s.provider?.let { textSignature(s, it) }
     }
 
     /** Same language; Chinese only when the script matches too (Simplified and Traditional differ). */

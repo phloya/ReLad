@@ -3,10 +3,8 @@
     <string name="plus_translate_language">Переводить на</string>
     <string name="plus_translate_sfx">Переводить звуковые эффекты</string>
     <string name="plus_translate_sfx_summary">Звук перерисовывается переводом в стиле оригинала</string>
-    <string name="plus_translate_whole_chapter">Переводить всю главу сразу</string>
-    <string name="plus_translate_whole_chapter_summary">Как только глава открыта, все её страницы переводятся по порядку, по несколько сразу, и ждать на каждой странице не нужно. Оплачиваются и страницы, до которых вы не дочитаете. Онлайн-главы переводятся по мере скачивания страниц</string>
     <string name="plus_translate_no_providers">Сначала добавьте ИИ-провайдера</string>
-    <string name="plus_translate_how">Каждая страница — один запрос к ИИ-провайдеру: он находит текст и переводит его. Нужна модель, которая понимает картинки (например, Gemini Flash, модели уровня GPT-4o, Claude). Переведённые страницы сохраняются, повторное чтение бесплатно.</string>
+    <string name="plus_translate_how">Глава открывается в оригинале и ничего не тратит. Чтобы перевести её, в читалке нажмите ⋯ → «Перевести главу» (или кнопку-глобус внизу), либо выделите главы в списке и нажмите «Перевести». Глава переводится целиком в фоне, даже если выйти из читалки, и потом открывается переведённой; в ⋯ можно переключаться между оригиналом и переводом. Каждая страница — один запрос к ИИ-провайдеру: он находит текст и переводит его. Нужна модель, которая понимает картинки (например, Gemini Flash, модели уровня GPT-4o, Claude). Переведённые страницы сохраняются, повторное чтение бесплатно.</string>
     <string name="plus_translate_chapters">Перевести</string>
     <string name="plus_translate_started">Перевожу в фоне глав: %1$d</string>
     <string name="plus_translate_finished">Переведено глав: %1$d из %2$d</string>
@@ -19,7 +17,7 @@
     <string name="plus_translate_saved_confirm">Удалить все сохранённые переводы? Страницы снова переведёт модель при чтении, и на это снова уйдут токены.</string>
     <string name="plus_translate_saved_delete">Удалить</string>
     <string name="plus_translate_saved_deleted">Сохранённые переводы удалены</string>
-    <string name="plus_translate_continue_hint">Чтобы продолжить, выделите главы и снова нажмите «Перевести»: готовые страницы сохранятся.</string>
+    <string name="plus_translate_continue_hint">Чтобы продолжить, откройте главу или выделите главы и снова нажмите «Перевести»: готовые страницы сохранятся.</string>
     <string name="plus_reader_show_original">Показать оригинал</string>
     <string name="plus_reader_show_translation">Показать перевод</string>
     <string name="plus_retranslate">Перевести заново</string>
@@ -29,4 +27,10 @@
     <string name="plus_retranslate_button">Перевод заново</string>
     <string name="plus_translate_next_chapter">Переводить следующую главу заранее</string>
     <string name="plus_translate_next_chapter_summary">Когда открытая глава готова, следующая переводится в фоне, и при переходе ждать не придётся. Тратит токены и на главу, которую вы, возможно, не откроете</string>
+    <string name="plus_reader_translate_chapter">Перевести главу</string>
+    <string name="plus_reader_version_original">Оригинал</string>
+    <string name="plus_reader_version_translation">Перевод (%1$s)</string>
+    <string name="plus_chapter_translated">Перевод</string>
+    <string name="plus_chapter_translating">Перевод %1$d/%2$d</string>
+    <string name="plus_chapter_translation_started">Перевод в очереди</string>
 </resources>

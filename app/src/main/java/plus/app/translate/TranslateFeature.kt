@@ -26,6 +26,7 @@ import plus.app.PlusFeature
 import plus.app.PlusGraph
 import plus.app.ui.PlusAiProvidersScreen
 import plus.core.pipeline.PageProcessor
+import plus.translate.ChapterVersions
 import plus.translate.LetteringFonts
 import plus.translate.PageTranslator
 import plus.translate.TargetLanguage
@@ -55,22 +56,39 @@ object TranslateFeature : PlusFeature {
         translations = translations(graph),
         // Timings only, no page text: what a slow chapter waits for (adb logcat -s ReLad)
         log = { Log.i("ReLad", it) },
-    )
+        // Only chapters the reader asked to translate; the others open in the original
+        versions = versions(graph),
+    ).also { translator = it }
+
+    @Volatile
+    private var translator: PageTranslator? = null
+
+    /** What pages translated with the current settings are counted under (`null`: no provider yet). */
+    fun textSignature(graph: PlusGraph): String? {
+        if (!graph.isEnabled(this)) return null
+        return translator?.textSignature()
+    }
 
     override fun settingsScreen(): Screen = TranslateSettingsScreen()
 
-    override fun preparesWholeChapter(graph: PlusGraph): Boolean =
-        graph.isEnabled(this) && TranslatePreferences(graph).wholeChapter.get()
-
-    /** When the open chapter is done, the next one is translated in the background. */
+    /** When a chapter asked for is done, the next one is translated in the background. */
     fun translatesNextChapter(graph: PlusGraph): Boolean =
-        preparesWholeChapter(graph) && TranslatePreferences(graph).nextChapter.get()
+        graph.isEnabled(this) && TranslatePreferences(graph).nextChapter.get()
 
     @Volatile
     private var bibleStore: BibleStore? = null
 
     @Volatile
     private var translationStore: TranslationStore? = null
+
+    @Volatile
+    private var versionStore: ChapterVersions? = null
+
+    /** Which chapters are translated (or being), which version each shows, how far each got. */
+    fun versions(graph: PlusGraph): ChapterVersions = versionStore ?: synchronized(this) {
+        versionStore ?: ChapterVersions(File(graph.context.filesDir, "relad/chapters.json"))
+            .also { versionStore = it }
+    }
 
     /** Pages' translations, kept for good in app files: the cache only holds the drawn images. */
     fun translations(graph: PlusGraph): TranslationStore = translationStore ?: synchronized(this) {
@@ -90,7 +108,6 @@ internal class TranslatePreferences(graph: PlusGraph) {
     val provider = prefs.string(TranslateFeature.id, "provider")
     val language = prefs.string(TranslateFeature.id, "language", defaultLanguage())
     val soundEffects = prefs.boolean(TranslateFeature.id, "sfx", true)
-    val wholeChapter = prefs.boolean(TranslateFeature.id, "whole_chapter", true)
     val nextChapter = prefs.boolean(TranslateFeature.id, "next_chapter", true)
 
     private fun defaultLanguage(): String {
@@ -110,7 +127,6 @@ class TranslateSettingsScreen : Screen() {
         val providersJson by graph.preferences.aiProvidersJson.collectAsState()
         val providers = remember(providersJson) { graph.preferences.aiProviders() }
         val providerId by prefs.provider.collectAsState()
-        val wholeChapter by prefs.wholeChapter.collectAsState()
 
         val store = remember { TranslateFeature.translations(graph) }
         var saved by remember { mutableStateOf(store.count() to store.sizeBytes()) }
@@ -174,15 +190,9 @@ class TranslateSettingsScreen : Screen() {
                         title = stringResource(R.string.plus_translate_language),
                     ),
                     Preference.PreferenceItem.SwitchPreference(
-                        preference = prefs.wholeChapter,
-                        title = stringResource(R.string.plus_translate_whole_chapter),
-                        subtitle = stringResource(R.string.plus_translate_whole_chapter_summary),
-                    ),
-                    Preference.PreferenceItem.SwitchPreference(
                         preference = prefs.nextChapter,
                         title = stringResource(R.string.plus_translate_next_chapter),
                         subtitle = stringResource(R.string.plus_translate_next_chapter_summary),
-                        visible = wholeChapter,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = prefs.soundEffects,

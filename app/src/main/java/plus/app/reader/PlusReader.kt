@@ -1,43 +1,37 @@
 package plus.app.reader
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.ReaderActivity
 import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import mihon.app.di.appGraph
 import okio.Buffer
 import plus.app.Plus
-import plus.app.PlusGraph
 import plus.app.translate.ChapterTranslation
 import plus.app.translate.TranslateFeature
 import plus.core.pipeline.PageContext
-import plus.core.pipeline.PageProcessingEngine
+import plus.core.pipeline.PageProcessingEngine.PageState
+import plus.translate.ChapterVersions
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.chapter.model.Chapter
 import java.io.InputStream
 import java.util.Collections
 import java.util.WeakHashMap
@@ -48,6 +42,11 @@ import java.util.WeakHashMap
  * [stream] hands the reader the processed version of a page when Re:Lad has one, and the original
  * otherwise (while the processed one is being made). [statusFlow] re-sends the page's status when
  * a processed version becomes ready, which makes the holder load the page again through [stream].
+ *
+ * A chapter is shown in the original until the reader asks for its translation ([translateChapter]:
+ * the reader's ⋯ menu or the bottom bar button). It is then translated whole in the background by
+ * [ChapterTranslation], which goes on when the reader closes, and the reader can switch between
+ * the two versions ([showOriginal]); see [ChapterVersions].
  */
 object PlusReader {
 
@@ -70,32 +69,35 @@ object PlusReader {
         synchronized(known) { known.getOrPut(page.chapter) { mutableMapOf() } }[page.index] = KnownPage(hash, context)
     }
 
-    /** Chapters whose pages are being made ready ahead, one walk each. */
-    private val preparing: MutableMap<ReaderChapter, Job> = Collections.synchronizedMap(WeakHashMap())
-
     /** The page each chapter was opened at: the first one the reader showed. */
-    private val openedAt: MutableMap<ReaderChapter, Int> = WeakHashMap()
+    private val openedAt: MutableMap<ReaderChapter, Int> = Collections.synchronizedMap(WeakHashMap())
 
     @Volatile
     private var lastToastAt = 0L
 
-    private val _showOriginal = MutableStateFlow(false)
+    private fun versions(context: Context): ChapterVersions = TranslateFeature.versions(Plus.graph(context))
 
     /**
-     * The reader shows pages as they came, not translated or enhanced (the button in the reader's
-     * bottom bar). Processing goes on meanwhile, so switching back shows what got done.
+     * "Translate the chapter": the open chapter is translated whole in the background, from the
+     * page the reader is on, and shown translated as its pages come in.
      */
-    val showOriginal: StateFlow<Boolean> = _showOriginal.asStateFlow()
+    fun translateChapter(activity: ReaderActivity) {
+        val manga = activity.viewModel.manga ?: return
+        val state = activity.viewModel.state.value
+        val chapter = state.currentChapter ?: return
+        ChapterTranslation.start(
+            activity,
+            manga,
+            listOf(chapter.chapter),
+            from = (state.currentPage - 1).coerceAtLeast(0),
+            next = nextChapter(activity, chapter),
+        )
+    }
 
-    fun toggleOriginal() = _showOriginal.update { !it }
-
-    /**
-     * Whether a feature works on the whole open chapter (translation: "the whole chapter at once"):
-     * Mihon then loads all its online pages, not only the next few on mobile data.
-     */
-    fun loadsWholeChapter(context: Context): Boolean {
-        val graph = Plus.graph(context)
-        return graph.features.any { it.preparesWholeChapter(graph) }
+    /** Shows the open chapter's original ([original]) or its translation; the translation goes on. */
+    fun showOriginal(activity: ReaderActivity, original: Boolean) {
+        val chapter = activity.viewModel.state.value.currentChapter ?: return
+        versions(activity).showOriginal(chapter.chapter.id, original)
     }
 
     /** Pages to show again at once (translated again: the original until the new version is ready). */
@@ -106,39 +108,95 @@ object PlusReader {
         activity.lifecycleScope.launch(Dispatchers.IO) {
             val bytes = page.stream?.invoke()?.use { it.readBytes() } ?: return@launch
             val context = pageContext(activity, page) ?: return@launch
+            versions(activity).startTranslating(page.chapter.chapter.id)
             Plus.graph(activity).engine.redo(bytes, context, TranslateFeature.id)
             reloads.emit(page)
         }
     }
 
-    /** Translate the page's whole chapter again, in the background as Translate in the chapter list does. */
     fun retranslateChapter(activity: ReaderActivity, page: ReaderPage) {
         val manga = activity.viewModel.manga ?: return
-        ChapterTranslation.start(activity, manga, listOf(page.chapter.chapter), fresh = true)
+        ChapterTranslation.start(activity, manga, listOf(page.chapter.chapter), fresh = true, from = page.index)
     }
 
     fun stream(activity: ReaderActivity, page: ReaderPage): (() -> InputStream)? {
         val original = page.stream ?: return null
         val graph = Plus.graph(activity)
         if (!graph.anyEnabled()) return original
-        prepareChapter(activity, page)
-        PlusReaderStatus.show(activity, page.chapter)
+        val chapter = page.chapter
+        synchronized(openedAt) { openedAt.getOrPut(chapter) { page.index } }
+        opened(activity, chapter)
+        PlusReaderStatus.show(activity, chapter)
         return {
             val bytes = original().use { it.readBytes() }
             val context = pageContext(activity, page)
             if (context == null || ImageUtil.isAnimatedAndSupported(Buffer().write(bytes))) {
                 bytes.inputStream()
             } else {
+                // A chapter not asked for has no translation step: the engine leaves it as it is
                 val resolved = graph.engine.resolve(bytes, context)
                 originalHashes[page] = resolved.originalHash
                 remember(page, resolved.originalHash, context)
-                if (showOriginal.value) bytes.inputStream() else resolved.image.inputStream()
+                val versions = versions(activity)
+                val id = chapter.chapter.id
+                // Drawn before (in the cache): the translator doesn't run, the page is counted here
+                if (versions.translates(id) && graph.engine.state(resolved.originalHash, context) == PageState.Done) {
+                    TranslateFeature.textSignature(graph)?.let { versions.pageTranslated(id, page.index, it) }
+                }
+                if (versions.translates(id) && !versions.showsTranslation(id)) {
+                    bytes.inputStream()
+                } else {
+                    resolved.image.inputStream()
+                }
             }
         }
     }
 
+    /** Chapters checked once since they were opened. */
+    private val checked: MutableSet<ReaderChapter> = Collections.newSetFromMap(
+        Collections.synchronizedMap(WeakHashMap()),
+    )
+
+    /**
+     * A translated chapter opened again: its translation goes on in the background if it stopped
+     * (the app was closed, a stop), and once it is done the next chapter is translated ahead.
+     */
+    private fun opened(activity: ReaderActivity, chapter: ReaderChapter) {
+        if (!checked.add(chapter)) return
+        val graph = Plus.graph(activity)
+        if (!graph.isEnabled(TranslateFeature)) return
+        val versions = versions(activity)
+        val id = chapter.chapter.id
+        if (!versions.translates(id)) return
+        val manga = activity.viewModel.manga ?: return
+        val next = nextChapter(activity, chapter)
+        val progress = versions.progress(id, TranslateFeature.textSignature(graph), chapter.pages?.size)
+        when {
+            !progress.complete -> if (!ChapterTranslation.isRunning(id)) {
+                ChapterTranslation.start(
+                    activity,
+                    manga,
+                    listOf(chapter.chapter),
+                    quiet = true,
+                    from = openedAt[chapter] ?: 0,
+                    next = next,
+                )
+            }
+            next != null && !versions.translates(next.id) && TranslateFeature.translatesNextChapter(graph) ->
+                ChapterTranslation.start(activity, manga, listOf(next), quiet = true)
+        }
+    }
+
+    private fun nextChapter(activity: ReaderActivity, chapter: ReaderChapter): Chapter? {
+        val chapters = activity.viewModel.state.value.viewerChapters ?: return null
+        if (chapters.currChapter !== chapter) return null
+        return chapters.nextChapter?.chapter
+    }
+
     fun statusFlow(activity: ReaderActivity, page: ReaderPage): Flow<Page.State> = channelFlow {
         val engine = Plus.graph(activity).engine
+        val versions = versions(activity)
+        val chapterId = page.chapter.chapter.id
         launch { page.statusFlow.collect { send(it) } }
         launch {
             engine.completed
@@ -150,8 +208,12 @@ object PlusReader {
             engine.settingsVersion.drop(1).collect { send(page.status) }
         }
         launch {
-            // Original or translation switched in the reader
-            showOriginal.drop(1).collect { send(page.status) }
+            // Translation asked for, or original and translation switched: not on every page done
+            versions.changes
+                .map { versions.showsTranslation(chapterId) }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { send(page.status) }
         }
         launch {
             // Translated again: show the page as it is now (the original until the new one is ready)
@@ -166,80 +228,6 @@ object PlusReader {
                 }
         }
         awaitClose()
-    }
-
-    /**
-     * When a feature asks for it (translation: "the whole chapter at once"), every page of the
-     * chapter is processed as soon as it opens: from the page opened to the end, then the pages
-     * before it, [AHEAD] at a time. Online pages are taken as Mihon downloads them (when it loads
-     * ahead over Wi-Fi only, on mobile data that is the next few). The walk ends with the reader
-     * and starts over when settings change (pages already done come from the cache).
-     */
-    private fun prepareChapter(activity: ReaderActivity, from: ReaderPage) {
-        val chapter = from.chapter
-        synchronized(preparing) {
-            openedAt.getOrPut(chapter) { from.index }
-            if (preparing[chapter]?.isActive == true) return
-            preparing[chapter] = activity.lifecycleScope.launch(Dispatchers.IO) {
-                val graph = Plus.graph(activity)
-                graph.engine.settingsVersion.collectLatest {
-                    if (graph.features.none { it.preparesWholeChapter(graph) }) return@collectLatest
-                    val pages = chapter.pages ?: return@collectLatest
-                    val start = from.index.coerceIn(0, pages.size)
-                    val order = pages.drop(start) + pages.take(start).reversed()
-                    // Taken in page order, so the title's notes grow page by page as when reading
-                    val gate = Semaphore(AHEAD)
-                    coroutineScope {
-                        for (page in order) {
-                            gate.acquire()
-                            launch {
-                                try {
-                                    prepare(activity, graph, page)
-                                } finally {
-                                    gate.release()
-                                }
-                            }
-                        }
-                    }
-                    translateNextChapter(activity, graph, chapter)
-                }
-            }
-        }
-    }
-
-    /**
-     * The open chapter is done: the next one is translated in the background (when the reader
-     * wants it), so turning to it there is nothing to wait for. Not after a failure: the next
-     * chapter would only stop the same way.
-     */
-    private fun translateNextChapter(activity: ReaderActivity, graph: PlusGraph, chapter: ReaderChapter) {
-        if (!TranslateFeature.translatesNextChapter(graph)) return
-        val manga = activity.viewModel.manga ?: return
-        val chapters = activity.viewModel.state.value.viewerChapters ?: return
-        if (chapters.currChapter !== chapter) return
-        val next = chapters.nextChapter?.chapter ?: return
-        val failed = knownPages(chapter).values.any { known ->
-            graph.engine.state(known.hash, known.context) is PageProcessingEngine.PageState.Failed
-        }
-        if (!failed) ChapterTranslation.start(activity, manga, listOf(next), quiet = true)
-    }
-
-    private suspend fun prepare(activity: ReaderActivity, graph: PlusGraph, page: ReaderPage) {
-        // Online pages: wait for Mihon to download the image
-        val state = page.statusFlow.first { it == Page.State.Ready || it is Page.State.Error }
-        if (state != Page.State.Ready) return
-        val bytes = try {
-            page.stream?.invoke()?.use { it.readBytes() }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            logcat(LogPriority.WARN, e) { "Re:Lad couldn't read page ${page.index} ahead" }
-            null
-        } ?: return
-        if (ImageUtil.isAnimatedAndSupported(Buffer().write(bytes))) return
-        val context = pageContext(activity, page) ?: return
-        remember(page, PageProcessingEngine.sha256(bytes), context)
-        graph.engine.prepare(bytes, context)
     }
 
     private fun pageContext(activity: ReaderActivity, page: ReaderPage): PageContext? {
@@ -259,7 +247,7 @@ object PlusReader {
             mangaGenres = manga.genre.orEmpty(),
             // Pages come in as their images finish loading, not in reading order: the page opened
             // says where reading starts (in Kirara page 8 came in first and pages 2–5 were drawn last)
-            readingFrom = synchronized(preparing) { openedAt[page.chapter] },
+            readingFrom = openedAt[page.chapter],
         )
     }
 
@@ -280,7 +268,14 @@ object PlusReader {
 
     private const val TOAST_INTERVAL_MS = 10_000L
     private const val RELOADS_BUFFER = 8
+}
 
-    /** Pages of a chapter made ready at once: as many as the translation step takes at a time. */
-    private const val AHEAD = 10
+/** The reader behind a composable's context, if it is in the reader. */
+internal fun Context.readerActivity(): ReaderActivity? {
+    var context: Context? = this
+    while (context != null) {
+        if (context is ReaderActivity) return context
+        context = (context as? ContextWrapper)?.baseContext
+    }
+    return null
 }

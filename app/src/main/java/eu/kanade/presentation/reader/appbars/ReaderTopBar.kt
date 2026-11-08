@@ -73,6 +73,9 @@ fun ReaderTopBar(
                             ),
                         )
                     }
+                    // PLUS --> Translate the chapter, then its original or its translation
+                    addAll(plus.app.reader.plusReaderMenu())
+                    // PLUS <--
                 },
             )
         },
