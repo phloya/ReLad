@@ -171,6 +171,48 @@ class BubbleEraserTest {
     }
 
     @Test
+    fun `an open bubble keeps its outline and the tone around it, its letters close to the outline`() {
+        val page = Page(width = 300, height = 260)
+        page.rect(0, 0, 300, 260, white)
+        // A tone of dots on the white page, then a round bubble over it
+        for (y in 60 until 200 step 6) for (x in 4 until 80 step 6) page.rect(x, y, x + 2, y + 2, black)
+        for (y in 0 until 260) {
+            for (x in 0 until 300) {
+                val r = kotlin.math.hypot(x - 150.0, y - 130.0)
+                if (r <= 57) {
+                    page.set(x, y, white)
+                } else if (r <= 60) {
+                    page.set(x, y, black)
+                }
+            }
+        }
+        // Its outline is open at the bottom (a caption was written over it): the white page and the
+        // bubble are one light area, and the outline is an island in it
+        page.rect(130, 180, 170, 200, white)
+        // A line of letters running up to the outline on both sides, and "..." after the line
+        for (x in 98 until 204 step 10) page.rect(x, 120, x + 5, 132, black)
+        for (x in 120 until 140 step 6) page.rect(x, 140, x + 2, 142, black)
+
+        val result = BubbleEraser.erase(
+            page.pixels,
+            page.width,
+            page.height,
+            Box(105, 115, 195, 137),
+            Box(0, 0, 300, 260),
+        )
+
+        page[110, 125] shouldBe white
+        page[200, 125] shouldBe white
+        page[132, 141] shouldBe white
+        // The outline (left, right, top) and the tone stay
+        page[91, 130] shouldBe black
+        page[208, 130] shouldBe black
+        page[150, 71] shouldBe black
+        page[76, 126] shouldBe black
+        result.enclosed shouldBe false
+    }
+
+    @Test
     fun `an open bubble's line is erased as far as it goes, past the model's box`() {
         val page = Page()
         page.rect(0, 0, 200, 200, white)

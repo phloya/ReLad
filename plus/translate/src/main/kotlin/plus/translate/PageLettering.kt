@@ -120,7 +120,7 @@ object PageLettering {
                 val s = p.sfx ?: p.art
                 log(
                     "${p.region.type} ${p.region.box} '${p.region.text.take(20)}' whole=${b?.rows != null} " +
-                        "onArt=${b?.onArt} cover=${b?.coverage} floating=${p.floating} " +
+                        "onArt=${b?.onArt} cover=${b?.coverage} floating=${p.floating} plain=${p.plain != null} " +
                         "ink=${p.ink?.box} lines=${p.ink?.lines} core=${p.ink?.core} size=${p.size}" +
                         (
                             s?.let {
