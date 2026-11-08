@@ -141,7 +141,7 @@ object PlusReader {
                 val id = chapter.chapter.id
                 // Drawn before (in the cache): the translator doesn't run, the page is counted here
                 if (versions.translates(id) && graph.engine.state(resolved.originalHash, context) == PageState.Done) {
-                    TranslateFeature.textSignature(graph)?.let { versions.pageTranslated(id, page.index, it) }
+                    TranslateFeature.pageDone(graph, id, page.index)
                 }
                 if (versions.translates(id) && !versions.showsTranslation(id)) {
                     bytes.inputStream()
@@ -170,9 +170,13 @@ object PlusReader {
         if (!versions.translates(id)) return
         val manga = activity.viewModel.manga ?: return
         val next = nextChapter(activity, chapter)
-        val progress = versions.progress(id, TranslateFeature.textSignature(graph), chapter.pages?.size)
+        val pages = chapter.pages?.size
+        val progress = versions.progress(id, TranslateFeature.textSignature(graph), pages)
+        // Translated, but drawn before the lettering changed: drawn again whole from the kept
+        // translations (no model), not page by page with the original showing as each is reached
+        val redraw = TranslateFeature.drawnSignature(graph)?.let { versions.needsDrawing(id, it, pages) } == true
         when {
-            !progress.complete -> if (!ChapterTranslation.isRunning(id)) {
+            !progress.complete || redraw -> if (!ChapterTranslation.isRunning(id)) {
                 ChapterTranslation.start(
                     activity,
                     manga,

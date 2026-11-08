@@ -170,9 +170,7 @@ object ChapterTranslation {
                             when (val state = translatePage(graph, manga, chapter, source.lang, page, fresh, start)) {
                                 PageState.Done -> {
                                     // Drawn before (in the cache): the translator didn't run to count it
-                                    TranslateFeature.textSignature(graph)?.let {
-                                        TranslateFeature.versions(graph).pageTranslated(chapter.id, page.index, it)
-                                    }
+                                    TranslateFeature.pageDone(graph, chapter.id, page.index)
                                     progress(done.incrementAndGet(), pages.size)
                                 }
                                 is PageState.Failed -> error = state.error

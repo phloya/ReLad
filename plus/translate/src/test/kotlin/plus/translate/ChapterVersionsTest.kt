@@ -82,6 +82,26 @@ class ChapterVersionsTest {
     }
 
     @Test
+    fun `a chapter drawn before the lettering changed is drawn again, its translation still counts`() {
+        val versions = ChapterVersions(file)
+        versions.startTranslating(7)
+        versions.pageCount(7, 2)
+        versions.pageTranslated(7, 0, "v4|claude|ru", "v4|r15|claude|ru")
+        versions.pageTranslated(7, 1, "v4|claude|ru", "v4|r15|claude|ru")
+        versions.needsDrawing(7, "v4|r15|claude|ru") shouldBe false
+
+        // An update draws pages better (r16): every page is translated, none is drawn the new way
+        versions.progress(7, "v4|claude|ru").complete shouldBe true
+        versions.needsDrawing(7, "v4|r16|claude|ru") shouldBe true
+        versions.pageTranslated(7, 0, "v4|claude|ru", "v4|r16|claude|ru")
+        versions.needsDrawing(7, "v4|r16|claude|ru") shouldBe true
+        versions.pageTranslated(7, 1, "v4|claude|ru", "v4|r16|claude|ru")
+        ChapterVersions(file).needsDrawing(7, "v4|r16|claude|ru") shouldBe false
+        // A chapter never asked for has nothing to draw
+        versions.needsDrawing(8, "v4|r16|claude|ru") shouldBe false
+    }
+
+    @Test
     fun `every change is announced, a repeat is not`() {
         val versions = ChapterVersions(file)
         val start = versions.changes.value

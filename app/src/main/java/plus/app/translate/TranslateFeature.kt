@@ -69,6 +69,18 @@ object TranslateFeature : PlusFeature {
         return translator?.textSignature()
     }
 
+    /** What pages are drawn with now, lettering version included (`null`: no provider yet). */
+    fun drawnSignature(graph: PlusGraph): String? {
+        if (!graph.isEnabled(this)) return null
+        return translator?.drawnSignature()
+    }
+
+    /** A page found drawn (in the cache): counted as translated and drawn with the current settings. */
+    fun pageDone(graph: PlusGraph, chapterId: Long, pageIndex: Int) {
+        val text = textSignature(graph) ?: return
+        versions(graph).pageTranslated(chapterId, pageIndex, text, drawnSignature(graph))
+    }
+
     override fun settingsScreen(): Screen = TranslateSettingsScreen()
 
     /** When a chapter asked for is done, the next one is translated in the background. */

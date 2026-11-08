@@ -35,6 +35,11 @@ class ChapterVersions(private val file: File) {
          * language or model makes them pages to translate again.
          */
         val done: Map<Int, String> = emptyMap(),
+        /**
+         * What each page was last drawn with (lettering version included): after an update that
+         * draws pages better, the chapter is drawn again whole, not page by page as it is read.
+         */
+        val drawn: Map<Int, String> = emptyMap(),
     )
 
     class Progress(val done: Int, val total: Int) {
@@ -62,16 +67,35 @@ class ChapterVersions(private val file: File) {
 
     fun pageCount(chapterId: Long, pages: Int) = change(chapterId) { it.copy(pages = pages) }
 
-    fun pageTranslated(chapterId: Long, pageIndex: Int, signature: String) {
-        if (get(chapterId)?.done?.get(pageIndex) == signature) return
-        change(chapterId) { it.copy(done = it.done + (pageIndex to signature)) }
+    /** The page is translated with [signature] and drawn with [drawnWith]. */
+    fun pageTranslated(chapterId: Long, pageIndex: Int, signature: String, drawnWith: String? = null) {
+        val chapter = get(chapterId)
+        if (chapter?.done?.get(pageIndex) == signature &&
+            (drawnWith == null || chapter.drawn[pageIndex] == drawnWith)
+        ) {
+            return
+        }
+        change(chapterId) {
+            it.copy(
+                done = it.done + (pageIndex to signature),
+                drawn = if (drawnWith == null) it.drawn else it.drawn + (pageIndex to drawnWith),
+            )
+        }
     }
 
     /** Translated again: the page counts as not done until the new translation is in. */
-    fun pageForgotten(chapterId: Long, pageIndex: Int) = change(chapterId) { it.copy(done = it.done - pageIndex) }
+    fun pageForgotten(chapterId: Long, pageIndex: Int) =
+        change(chapterId) { it.copy(done = it.done - pageIndex, drawn = it.drawn - pageIndex) }
 
     /** The whole chapter is translated again. */
-    fun pagesForgotten(chapterId: Long) = change(chapterId) { it.copy(done = emptyMap()) }
+    fun pagesForgotten(chapterId: Long) = change(chapterId) { it.copy(done = emptyMap(), drawn = emptyMap()) }
+
+    /** Some page of the chapter is not drawn with [drawnWith] (the lettering changed since). */
+    fun needsDrawing(chapterId: Long, drawnWith: String, pages: Int? = null): Boolean {
+        val chapter = get(chapterId) ?: return false
+        val total = pages ?: chapter.pages
+        return (0 until total).any { chapter.drawn[it] != drawnWith }
+    }
 
     /** Pages translated with [signature] (the current settings) out of the chapter's pages. */
     fun progress(chapterId: Long, signature: String?, pages: Int? = null): Progress {
