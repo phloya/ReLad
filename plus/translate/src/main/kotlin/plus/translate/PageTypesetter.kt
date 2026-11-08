@@ -21,15 +21,24 @@ object PageTypesetter {
      */
     fun render(bitmap: Bitmap, regions: List<TextRegion>, language: String, fonts: LetteringFonts): List<TextRegion> {
         val width = bitmap.width
-        val height = bitmap.height
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-        val placed = TextPlacer.place(pixels, width, height, regions)
-        val letterings = PageLettering.plan(pixels, width, height, placed, language, PaintFonts(fonts))
-        bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
-
+        val placed = regions.toMutableList()
         val canvas = Canvas(bitmap)
-        letterings.forEach { draw(canvas, it) }
+        val paintFonts = PaintFonts(fonts)
+        // A strip band by band ([PageBands]): only the rows around its texts are in memory at once
+        for (band in PageBands.of(width, bitmap.height, regions)) {
+            val pixels = IntArray(width * band.rows)
+            bitmap.getPixels(pixels, 0, width, 0, band.top, width, band.rows)
+            val local = band.regions.map { PageBands.shifted(regions[it], band.top) }
+            val onText = TextPlacer.place(pixels, width, band.rows, local)
+            val letterings =
+                PageLettering.plan(pixels, width, band.rows, onText, language, paintFonts, pageHeight = bitmap.height)
+            bitmap.setPixels(pixels, 0, width, 0, band.top, width, band.rows)
+            canvas.save()
+            canvas.translate(0f, band.top.toFloat())
+            letterings.forEach { draw(canvas, it) }
+            canvas.restore()
+            band.regions.forEachIndexed { k, i -> placed[i] = PageBands.shifted(onText[k], -band.top) }
+        }
         return placed
     }
 
