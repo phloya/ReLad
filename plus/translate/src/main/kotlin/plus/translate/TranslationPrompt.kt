@@ -102,7 +102,8 @@ object TranslationPrompt {
               "aliases":[{"original":"…","translation":"…"}].
             - "new_terms": names of places, groups, techniques, ranks, items, creatures or catchphrases not in the
               Glossary that should stay the same later. "kind": place, organization, technique, title, item,
-              creature, catchphrase or other. Ordinary words are not terms.
+              creature, catchphrase or other. Ordinary words are not terms. "translation": the term's dictionary
+              form, as a heading would show it (nominative), not as this line declines it.
             - "summary": one short sentence on what happens on this page and between whom.
             - A page with no text: {"regions":[],"summary":"…"}.
         """.trimIndent()

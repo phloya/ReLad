@@ -64,8 +64,10 @@ class LanguageStyle(
                     SourceLanguage.Chinese to "Palladius system: zh чж, j and z цз, q and c ц, x с, r ж, " +
                         "-n нь, -ng н, hui хуэй (Чжан, Сяо, Е Фань, Лин Мо); given name one word.",
                     SourceLanguage.English to "the English names are romanized: write Japanese names by Polivanov " +
-                        "(Sasuke Uchiha → Сасукэ Утиха, Shikamaru → Сикамару), Korean by Kontsevich (Jinwoo → Джину, " +
-                        "Seong → Сон), Chinese by Palladius (Xiao → Сяо), not by English letters.",
+                        "(Sasuke Uchiha → Сасукэ Утиха, Shikamaru → Сикамару), Korean by Kontsevich (Jinwoo and " +
+                        "Jin-woo → Джину, Seong and Sung → Сон, Hyung → Хён: woo and wu у, eo о, eu ы, ae э), " +
+                        "Chinese by Palladius (Xiao → Сяо), not by English letters. A nickname made of ordinary " +
+                        "words is translated (Boss Ant → Босс-муравей).",
                 ),
                 examples = """
                     - 「お前、まだそんなこと言ってんのかよ」 → «Ты всё ещё несёшь эту чушь?»
