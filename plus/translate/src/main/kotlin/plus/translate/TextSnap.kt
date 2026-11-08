@@ -14,7 +14,9 @@ object TextSnap {
 
     fun candidates(pixels: IntArray, width: Int, height: Int, box: Box, others: List<Box>): List<Box> {
         if (box.width < 2 || box.height < 2) return emptyList()
-        val reachY = maxOf((box.height * REACH).toInt(), (height * MIN_REACH).toInt())
+        // (a long strip is many pages one under another: a page's height, not the strip's)
+        val pageHeight = minOf(height, (width * PAGE_SHAPE).toInt())
+        val reachY = maxOf((box.height * REACH).toInt(), (pageHeight * MIN_REACH).toInt())
         val reachX = (box.width * REACH_X).toInt()
         val window = Box(
             (box.left - reachX).coerceAtLeast(0),
@@ -97,6 +99,9 @@ object TextSnap {
 
     /** ...but at least this share of the page height. */
     private const val MIN_REACH = 0.05f
+
+    /** A page is about this many times as high as it is wide (a strip is much higher). */
+    private const val PAGE_SHAPE = 1.5f
 
     /** And sideways, this share of its width. */
     private const val REACH_X = 0.5f

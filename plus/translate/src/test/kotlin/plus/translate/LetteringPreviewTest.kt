@@ -63,8 +63,13 @@ class LetteringPreviewTest {
                 val log = StringBuilder()
                 SfxLetters.debug = { log.append(it).append('\n') }
                 val started = System.nanoTime()
-                val plans = PageLettering.plan(pixels, width, height, page.regions, page.language, fonts) {
-                    log.append(it).append('\n')
+                // Band by band, as the phone draws ([PageTypesetter.render]): each plan with its band's top
+                val plans = PageBands.of(width, height, page.regions).flatMap { band ->
+                    val rows = pixels.copyOfRange(band.top * width, band.bottom * width)
+                    val local = band.regions.map { PageBands.shifted(page.regions[it], band.top) }
+                    PageLettering.plan(rows, width, band.rows, local, page.language, fonts, pageHeight = height) {
+                        log.append(it).append('\n')
+                    }.also { rows.copyInto(pixels, band.top * width) }.map { it to band.top }
                 }
                 log.append("planned in ${(System.nanoTime() - started) / 1_000_000} ms\n")
                 File(out, "${dir.name}-${file.nameWithoutExtension}.txt").writeText(log.toString())
@@ -77,7 +82,7 @@ class LetteringPreviewTest {
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
                 g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
                 g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON)
-                for (plan in plans) {
+                for ((plan, top) in plans) {
                     val measurer = plan.font as AwtMeasurer
                     // Scaled, and leaning as the original's letters (a glyph's top is at negative y)
                     val size = plan.block.size.toDouble()
@@ -86,6 +91,7 @@ class LetteringPreviewTest {
                     )
                     val leaning = plan.skew * measurer.capHeight * plan.block.size / 2
                     val plain = g.transform
+                    g.translate(0.0, top.toDouble())
                     if (plan.angle != 0f) {
                         g.rotate(Math.toRadians(plan.angle.toDouble()), plan.pivotX.toDouble(), plan.pivotY.toDouble())
                     }

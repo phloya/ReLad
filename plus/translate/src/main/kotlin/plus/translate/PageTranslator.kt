@@ -82,7 +82,7 @@ class PageTranslator(
         }
         val regions = page.regions
 
-        // A few pages at a time: a long strip at full size takes tens of megabytes while it is drawn
+        // A few pages at a time ([rendering]): a page takes tens of megabytes while it is drawn
         val (image, placed) = rendering.withPermit {
             // Full size up to 16 MP whatever the shape (a 4096 side limit made 800 × 14 820 strips 200 px
             // wide and blurry); larger pages are decoded smaller, boxes are in original pixels
@@ -248,7 +248,15 @@ class PageTranslator(
         )
     }
 
-    private val rendering = Semaphore(RENDER_AT_ONCE)
+    /**
+     * Pages drawn at once: as many as the app's memory takes, with room left for the app. A page's
+     * pixels and the text search's work arrays are in the app's heap while it is drawn: up to
+     * ~130 MB for a 16 MP page, about half that for a strip's band ([PageBands]); the page itself
+     * is in native memory. 512 MB (a large heap on most phones): 3.
+     */
+    private val rendering = Semaphore(
+        (Runtime.getRuntime().maxMemory() / HEAP_PER_RENDER).toInt().coerceIn(MIN_RENDER_AT_ONCE, MAX_RENDER_AT_ONCE),
+    )
 
     private companion object {
         const val MAX_MODEL_SIDE = 2048
@@ -260,7 +268,9 @@ class PageTranslator(
         const val PREVIEW_SIDE = 4096
         const val MAX_RENDER_SIDE = 65_000
         const val MAX_RENDER_PIXELS = 16L * 1024 * 1024
-        const val RENDER_AT_ONCE = 2
+        const val HEAP_PER_RENDER = 160L * 1024 * 1024
+        const val MIN_RENDER_AT_ONCE = 2
+        const val MAX_RENDER_AT_ONCE = 4
 
         /** Bump when erasing or typesetting changes: pages already made are then drawn again. */
         const val RENDER_VERSION = 13

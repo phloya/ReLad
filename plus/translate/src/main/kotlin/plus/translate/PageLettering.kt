@@ -49,15 +49,31 @@ object PageLettering {
         regions: List<TextRegion>,
         language: String,
         fonts: Fonts,
+        /**
+         * The whole page's height when [pixels] are a band of it ([PageBands]): letters are judged
+         * against the page, not the band.
+         */
+        pageHeight: Int = height,
+        /** Receives how long each step took, milliseconds (for profiling). */
+        steps: MutableMap<String, Long>? = null,
         /** Receives a line per region about what was found, for tuning. */
         log: ((String) -> Unit)? = null,
     ): List<Lettering> {
+        var started = System.nanoTime()
+        fun step(name: String) {
+            if (steps == null) return
+            val now = System.nanoTime()
+            steps[name] = (steps[name] ?: 0L) + (now - started) / 1_000_000
+            started = now
+        }
         val locale = Locale.forLanguageTag(language)
+        val maxCore = pageHeight * MAX_CORE
         // Only dots and marks (……!!): nothing to translate, the original stays as drawn
         val own = ownBoxes(regions.filterNot { wordless(it.text) })
         val inPlace = own.map { region ->
-            if (region.type == RegionType.Bubble) bubbleInk(pixels, width, height, region.box) else null
+            if (region.type == RegionType.Bubble) bubbleInk(pixels, width, height, region.box, maxCore) else null
         }
+        step("snap-ink")
         // The letters' size on this page, from the bubbles the model placed well: "letters" found
         // much bigger than that are art (an eye on a white panel), not a bubble's text
         val pageCore = inPlace.mapNotNull { it?.core }.sorted()
@@ -76,7 +92,7 @@ object PageLettering {
                 val letters = TextSnap.candidates(pixels, width, height, region.box, others)
                     .take(MAX_SNAP_TRIES)
                     .firstNotNullOfOrNull { candidate ->
-                        bubbleLetters(pixels, width, height, candidate)
+                        bubbleLetters(pixels, width, height, candidate, maxCore)
                             ?.takeIf { pageCore == null || it.core <= pageCore * MAX_SNAP_CORE }?.box
                             ?.takeIf { found -> others.none { share(found, it) >= OTHERS_LETTERS } }
                     }
@@ -89,10 +105,13 @@ object PageLettering {
             }
         }
 
+        step("snap")
         // 1. Everything is found and measured on the original page, before anything is erased
         val plans = placed.map { region ->
             val others = placed.filter { it !== region && it.type.erasesOriginal }.map { it.box }
-            analyze(pixels, width, height, region, locale, fonts, others)
+            analyze(pixels, width, height, region, locale, fonts, others, maxCore).also {
+                step("analyze-${region.type}")
+            }
         }
 
         if (log != null) {
@@ -142,6 +161,7 @@ object PageLettering {
                 BubbleEraser.paint(pixels, width, bubble)
             }
         }
+        step("erase-bubbles")
         // Sound effects' letters: the art behind them is drawn on from the art around (no letters
         // copied in from another sound effect)
         // Letters on a plain background of one colour are painted with it...
@@ -158,6 +178,7 @@ object PageLettering {
         plans.mapNotNull { it.plain ?: it.gradient }.filter { !it.flat && it.smooth }.forEach { plain ->
             SmoothFill.fill(pixels, width, plain.area, plain.erase, plain.backgroundMask)
         }
+        step("erase-plain")
         val drawn = plans.mapNotNull { plan ->
             (plan.sfx ?: plan.art)?.let { it.area to it.mask }
                 ?: (plan.plain ?: plan.gradient)?.takeIf { !it.flat && !it.smooth }?.let { it.area to it.erase }
@@ -172,6 +193,7 @@ object PageLettering {
             drawn.forEach { (area, mask) -> Inpaint.fill(pixels, width, height, area, mask, letters) }
         }
 
+        step("erase-inpaint")
         // 3. One letter size for the page's bubbles (and one for its captions), as a letterer keeps
         val pageSize = mutableMapOf<RegionType, Float>()
         for (type in listOf(RegionType.Bubble, RegionType.Caption)) {
@@ -311,7 +333,7 @@ object PageLettering {
     }
 
     /** The dark letters in [box] when it lies in a closed bubble, or `null`. */
-    private fun bubbleInk(pixels: IntArray, width: Int, height: Int, box: Box): InkMeasure.Ink? {
+    private fun bubbleInk(pixels: IntArray, width: Int, height: Int, box: Box, maxCore: Float): InkMeasure.Ink? {
         val bubble = closedBubble(pixels, width, height, box) ?: return null
         val ink = InkMeasure.measure(
             pixels,
@@ -322,11 +344,11 @@ object PageLettering {
             vertical = false,
             inside = bubble.room,
         )
-        return ink?.takeIf { it.core >= MIN_CORE && it.core <= height * MAX_CORE }
+        return ink?.takeIf { it.core >= MIN_CORE && it.core <= maxCore }
     }
 
     /** The letters of the closed bubble [box] lies in, or `null` if it lies in none (or one without letters). */
-    private fun bubbleLetters(pixels: IntArray, width: Int, height: Int, box: Box): InkMeasure.Ink? {
+    private fun bubbleLetters(pixels: IntArray, width: Int, height: Int, box: Box, maxCore: Float): InkMeasure.Ink? {
         val bubble = closedBubble(pixels, width, height, box) ?: return null
         val lobe = bubble.erased ?: return null
         val ink = InkMeasure.measure(
@@ -338,7 +360,7 @@ object PageLettering {
             vertical = false,
             inside = bubble.room,
         )
-        return ink?.takeIf { it.core >= MIN_CORE && it.core <= height * MAX_CORE }
+        return ink?.takeIf { it.core >= MIN_CORE && it.core <= maxCore }
     }
 
     /** The closed bubble [box] lies in: almost all of the box inside its light area, which is light but for letters. */
@@ -430,6 +452,7 @@ object PageLettering {
         locale: Locale,
         fonts: Fonts,
         others: List<Box>,
+        maxCore: Float,
     ): Plan {
         val upper = region.type == RegionType.Sfx || LetterCase.upper(region.text, region.type)
         val text = LetterCase.apply(LetterCase.withoutQuotes(region.translation, region.text), upper, locale)
@@ -527,7 +550,7 @@ object PageLettering {
             vertical = vertical,
             inside = bubble.room.takeIf { !bubble.onArt },
         )
-            ?.takeIf { it.core >= MIN_CORE && it.core <= height * MAX_CORE }
+            ?.takeIf { it.core >= MIN_CORE && it.core <= maxCore }
 
         val cjkOutput = LetterCase.isCjk(text)
         val originalUpper = LetterCase.upper(region.text, region.type)
@@ -1174,7 +1197,7 @@ object PageLettering {
     private const val MAX_ART_MARGIN = 0.012f
 
     /** Places tried for a bubble whose box is beside its letters. */
-    private const val MAX_SNAP_TRIES = 150
+    private const val MAX_SNAP_TRIES = 30
 
     /**
      * A box moves onto letters at most this many times the page's letter size (measured on at
