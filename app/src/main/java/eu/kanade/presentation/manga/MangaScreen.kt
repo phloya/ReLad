@@ -768,7 +768,11 @@ private fun LazyListScope.sharedChapterItems(
                                 it + 1,
                             )
                         },
-                    scanlator = item.chapter.scanlator.takeIf { !it.isNullOrBlank() },
+                    // PLUS: "Translation" or "Translation 12/20" before the scanlator
+                    scanlator = plus.app.translate.PlusChapterLabel.withScanlator(
+                        item.chapter.id,
+                        item.chapter.scanlator.takeIf { !it.isNullOrBlank() },
+                    ),
                     read = item.chapter.read,
                     bookmark = item.chapter.bookmark,
                     selected = item.selected,

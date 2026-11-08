@@ -19,6 +19,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import plus.app.Plus
+import plus.app.translate.TranslateFeature
 import plus.core.ai.AiException
 import plus.core.pipeline.PageProcessingEngine.PageState
 import java.util.Collections
@@ -65,7 +66,9 @@ internal object PlusReaderStatus {
         while (isActive()) {
             val chapter = label.chapter
             val pages = chapter?.pages
-            val whole = graph.features.any { it.preparesWholeChapter(graph) }
+            val versions = TranslateFeature.versions(graph)
+            // Only a chapter asked to be translated: the others are read in the original
+            val whole = chapter != null && graph.isEnabled(TranslateFeature) && versions.translates(chapter.chapter.id)
             var done = 0
             var failed = 0
             var error: Throwable? = null
@@ -74,15 +77,15 @@ internal object PlusReaderStatus {
                     val known = PlusReader.knownPages(chapter)
                     for (page in pages) {
                         val k = known[page.index] ?: continue
-                        when (val state = graph.engine.state(k.hash, k.context)) {
-                            PageState.Done -> done++
-                            is PageState.Failed -> {
-                                failed++
-                                error = state.error
-                            }
-                            PageState.Waiting -> Unit
+                        val state = graph.engine.state(k.hash, k.context)
+                        if (state is PageState.Failed) {
+                            failed++
+                            error = state.error
                         }
                     }
+                    // Kept with the chapter, not counted from the pages seen since it opened: leaving the
+                    // reader and coming back showed 1 of 20 for a chapter half done
+                    done = versions.progress(chapter.chapter.id, TranslateFeature.textSignature(graph), pages.size).done
                 }
             }
             label.error = error

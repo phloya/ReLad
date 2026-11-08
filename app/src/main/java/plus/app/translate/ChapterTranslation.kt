@@ -39,15 +39,19 @@ import java.util.concurrent.atomic.AtomicInteger
 import mihon.icons.materialsymbols.R as MaterialSymbolsR
 
 /**
- * "Translate" on selected chapters in the manga screen: the chapters are translated in the
- * background, in reading order, with a notification that shows how far it got and, if it stopped,
- * why. Pages are loaded the way the reader loads them (online, downloaded or local), so when the
- * chapter is opened the translated pages come from the cache at once.
+ * Translates chapters in the background: "Translate" on chapters selected in the manga screen, or
+ * "Translate the chapter" in the reader. It goes on when the reader is closed, in reading order,
+ * with a notification that shows how far it got and, if it stopped, why. Pages are loaded the way
+ * the reader loads them (online, downloaded or local), so when the chapter is opened the
+ * translated pages come from the cache at once. A chapter is marked as translated in
+ * [plus.translate.ChapterVersions] first: only those chapters are translated at all.
  */
 object ChapterTranslation {
 
     /** Chapters being translated now: pressing Translate again doesn't start them twice. */
     private val running = ConcurrentHashMap.newKeySet<Long>()
+
+    fun isRunning(chapterId: Long): Boolean = chapterId in running
 
     fun isAvailable(context: Context): Boolean {
         val graph = Plus.graph(context)
@@ -56,11 +60,27 @@ object ChapterTranslation {
 
     /**
      * [fresh]: translate again (Translate again in the reader), not only the pages not done yet.
-     * [quiet]: started by Re:Lad itself (the next chapter ahead): no toasts, the notice only.
+     * [quiet]: started by Re:Lad itself (the reader going on after a stop, the next chapter
+     * ahead): no toasts, the notice only. [from]: the page the reader is on, done first (one
+     * chapter). [next]: the chapter after it, translated next when the setting says so.
      */
-    fun start(context: Context, manga: Manga, chapters: List<Chapter>, fresh: Boolean = false, quiet: Boolean = false) {
+    fun start(
+        context: Context,
+        manga: Manga,
+        chapters: List<Chapter>,
+        fresh: Boolean = false,
+        quiet: Boolean = false,
+        from: Int = 0,
+        next: Chapter? = null,
+    ) {
         val app = context.applicationContext
         val graph = Plus.graph(app)
+        val versions = TranslateFeature.versions(graph)
+        // Asked for: these chapters open translated from now on, even if the run stops
+        chapters.forEach {
+            versions.startTranslating(it.id)
+            if (fresh) versions.pagesForgotten(it.id)
+        }
         val todo = chapters
             .sortedWith(compareBy<Chapter> { it.chapterNumber }.thenByDescending { it.sourceOrder })
             .filter { running.add(it.id) }
@@ -78,7 +98,8 @@ object ChapterTranslation {
             var error: Throwable? = null
             try {
                 for ((i, chapter) in todo.withIndex()) {
-                    val failure = translate(app, graph, manga, chapter, fresh) { done, total ->
+                    val start = if (todo.size == 1) from else 0
+                    val failure = translate(app, graph, manga, chapter, fresh, start) { done, total ->
                         notifier.progress(chapter.name, i + 1, todo.size, done, total)
                     }
                     if (failure == null) translated++ else error = failure
@@ -89,6 +110,10 @@ object ChapterTranslation {
                 todo.forEach { running.remove(it.id) }
             }
             notifier.finish(translated, todo.size, error)
+            // Not after a stop: the next chapter would only stop the same way
+            if (next != null && error == null && TranslateFeature.translatesNextChapter(graph)) {
+                start(app, manga, listOf(next), quiet = true)
+            }
             if (quiet) return@launch
             withContext(Dispatchers.Main) {
                 val text = if (error != null) {
@@ -108,6 +133,7 @@ object ChapterTranslation {
         manga: Manga,
         chapter: Chapter,
         fresh: Boolean,
+        from: Int,
         progress: (done: Int, total: Int) -> Unit,
     ): Throwable? {
         val app = context.appGraph
@@ -127,18 +153,28 @@ object ChapterTranslation {
                 source,
             ).loadChapter(readerChapter)
             val pages = readerChapter.pages ?: return null
+            TranslateFeature.versions(graph).pageCount(chapter.id, pages.size)
             val done = AtomicInteger(0)
             var error: Throwable? = null
             progress(0, pages.size)
-            // In page order, as many at a time as the translation step takes: the title's notes grow page by page
+            // In page order from the reader's page, then the ones before it, as many at a time as the
+            // translation step takes: the title's notes grow page by page
+            val start = from.coerceIn(0, pages.size)
+            val order = pages.drop(start) + pages.take(start).reversed()
             val gate = Semaphore(AT_ONCE)
             coroutineScope {
-                for (page in pages) {
+                for (page in order) {
                     gate.acquire()
                     launch {
                         try {
-                            when (val state = translatePage(graph, manga, chapter, source.lang, page, fresh)) {
-                                PageState.Done -> progress(done.incrementAndGet(), pages.size)
+                            when (val state = translatePage(graph, manga, chapter, source.lang, page, fresh, start)) {
+                                PageState.Done -> {
+                                    // Drawn before (in the cache): the translator didn't run to count it
+                                    TranslateFeature.textSignature(graph)?.let {
+                                        TranslateFeature.versions(graph).pageTranslated(chapter.id, page.index, it)
+                                    }
+                                    progress(done.incrementAndGet(), pages.size)
+                                }
                                 is PageState.Failed -> error = state.error
                                 PageState.Waiting -> Unit
                             }
@@ -166,6 +202,7 @@ object ChapterTranslation {
         sourceLanguage: String,
         page: ReaderPage,
         fresh: Boolean,
+        readingFrom: Int,
     ): PageState {
         // Online pages: the loader downloads them in order; a page that failed to download is skipped
         val status = page.statusFlow.first { it == Page.State.Ready || it is Page.State.Error }
@@ -183,6 +220,7 @@ object ChapterTranslation {
             sourceLanguage = sourceLanguage.ifEmpty { null },
             mangaDescription = manga.description,
             mangaGenres = manga.genre.orEmpty(),
+            readingFrom = readingFrom,
         )
         val hash = PageProcessingEngine.sha256(bytes)
         if (fresh) graph.engine.redo(bytes, context, TranslateFeature.id)

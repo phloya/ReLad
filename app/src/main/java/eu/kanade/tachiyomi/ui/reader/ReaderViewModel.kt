@@ -78,7 +78,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import mihon.core.metro.AppCoroutineScope
-import plus.app.reader.PlusReader
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.interactor.GetChaptersByMangaId
@@ -484,9 +483,7 @@ class ReaderViewModel(
      * Whether online chapters may load past the pages near the one being read.
      */
     private fun canLoadAhead(): Boolean =
-        !readerPreferences.loadAheadOnlyOverWifi.get() || context.activeNetworkState().isWifi ||
-            // PLUS: translating the whole chapter needs all its pages, on mobile data too
-            PlusReader.loadsWholeChapter(context)
+        !readerPreferences.loadAheadOnlyOverWifi.get() || context.activeNetworkState().isWifi
 
     /**
      * Called when the viewers decide it's a good time to preload a [chapter] and improve the UX so
