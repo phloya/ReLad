@@ -213,6 +213,41 @@ class BubbleEraserTest {
     }
 
     @Test
+    fun `a bubble whose edge is a ring of strokes is erased whole, its strokes and the art beyond kept`() {
+        val page = Page(width = 300, height = 260)
+        page.rect(0, 0, 300, 260, white)
+        page.rect(10, 100, 40, 160, black) // art beyond the bubble
+        // The bubble's edge: short strokes outwards, light between them
+        for (k in 0 until 120) {
+            val angle = Math.toRadians(k * 3.0)
+            var r = 60.0
+            while (r <= 80) {
+                val x = (150 + r * kotlin.math.cos(angle)).toInt()
+                val y = (130 + r * kotlin.math.sin(angle)).toInt()
+                page.rect(x, y, x + 2, y + 2, black)
+                r += 0.5
+            }
+        }
+        // Letters up to near the edge
+        for (x in 98 until 204 step 10) page.rect(x, 120, x + 5, 132, black)
+
+        val result = BubbleEraser.erase(
+            page.pixels,
+            page.width,
+            page.height,
+            Box(105, 115, 195, 137),
+            Box(0, 0, 300, 260),
+        )
+
+        page[110, 125] shouldBe white
+        page[200, 125] shouldBe white
+        page[220, 130] shouldBe black
+        page[150, 60] shouldBe black
+        page[20, 130] shouldBe black
+        result.rows.shouldNotBeNull()
+    }
+
+    @Test
     fun `an open bubble's line is erased as far as it goes, past the model's box`() {
         val page = Page()
         page.rect(0, 0, 200, 200, white)

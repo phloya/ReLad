@@ -123,37 +123,100 @@ object BubbleEraser {
         val boxBottom = (textBox.bottom - area.top).coerceAtMost(areaHeight)
         val boxLeft = (textBox.left - area.left).coerceAtLeast(0)
         val boxRight = (textBox.right - area.left).coerceAtMost(areaWidth)
-        val label = IntArray(light.size)
         val stack = IntArrayStack()
-        var labels = 0
-        var best = 0
-        var bestInBox = 0
-        for (sy in boxTop until boxBottom) {
-            for (sx in boxLeft until boxRight) {
-                val seed = sy * areaWidth + sx
-                if (!light[seed] || label[seed] != 0) continue
-                val id = ++labels
-                label[seed] = id
-                stack.push(seed)
-                var inBox = 0
-                while (stack.isNotEmpty()) {
-                    val i = stack.pop()
-                    val x = i % areaWidth
-                    val y = i / areaWidth
-                    if (y in boxTop until boxBottom && x in boxLeft until boxRight) inBox++
-                    if (x > 0) stack.pushIf(i - 1, light, label, id)
-                    if (x < areaWidth - 1) stack.pushIf(i + 1, light, label, id)
-                    if (y > 0) stack.pushIf(i - areaWidth, light, label, id)
-                    if (y < areaHeight - 1) stack.pushIf(i + areaWidth, light, label, id)
-                }
-                if (inBox > bestInBox) {
-                    best = id
-                    bestInBox = inBox
+        fun lightArea(source: BooleanArray): BooleanArray? {
+            val label = IntArray(source.size)
+            var labels = 0
+            var best = 0
+            var bestInBox = 0
+            for (sy in boxTop until boxBottom) {
+                for (sx in boxLeft until boxRight) {
+                    val seed = sy * areaWidth + sx
+                    if (!source[seed] || label[seed] != 0) continue
+                    val id = ++labels
+                    label[seed] = id
+                    stack.push(seed)
+                    var inBox = 0
+                    while (stack.isNotEmpty()) {
+                        val i = stack.pop()
+                        val x = i % areaWidth
+                        val y = i / areaWidth
+                        if (y in boxTop until boxBottom && x in boxLeft until boxRight) inBox++
+                        if (x > 0) stack.pushIf(i - 1, source, label, id)
+                        if (x < areaWidth - 1) stack.pushIf(i + 1, source, label, id)
+                        if (y > 0) stack.pushIf(i - areaWidth, source, label, id)
+                        if (y < areaHeight - 1) stack.pushIf(i + areaWidth, source, label, id)
+                    }
+                    if (inBox > bestInBox) {
+                        best = id
+                        bestInBox = inBox
+                    }
                 }
             }
+            return if (best == 0) null else BooleanArray(source.size) { label[it] == best }
         }
-        if (best == 0) return Result(null, WHITE)
-        val filled = BooleanArray(light.size) { label[it] == best }
+
+        // Did the light area run into the search limit? The page edge is not a limit: a bubble cut
+        // by the page edge (as the letterer left it) is closed by it; but light up to three page
+        // edges is the page's own white, not a bubble
+        fun extent(filled: BooleanArray): IntArray {
+            val e = intArrayOf(Int.MAX_VALUE, Int.MAX_VALUE, -1, -1)
+            for (i in filled.indices) {
+                if (!filled[i]) continue
+                val x = i % areaWidth
+                val y = i / areaWidth
+                e[0] = minOf(e[0], x)
+                e[1] = minOf(e[1], y)
+                e[2] = maxOf(e[2], x)
+                e[3] = maxOf(e[3], y)
+            }
+            return e
+        }
+        fun closed(filled: BooleanArray): Boolean {
+            val (minX, minY, maxX, maxY) = extent(filled)
+            val hitsLimit = (minX == 0 && area.left > 0) || (minY == 0 && area.top > 0) ||
+                (maxX == areaWidth - 1 && area.right < width) || (maxY == areaHeight - 1 && area.bottom < height)
+            val pageEdges = listOf(
+                minX == 0 && area.left == 0,
+                minY == 0 && area.top == 0,
+                maxX == areaWidth - 1 && area.right == width,
+                maxY == areaHeight - 1 && area.bottom == height,
+            ).count { it }
+            return !hitsLimit && pageEdges < 3
+        }
+
+        val textArea = (textBox.width.toLong() * textBox.height).coerceAtLeast(1)
+        var filled = lightArea(light) ?: return Result(null, WHITE)
+        var enclosed = closed(filled)
+        if (!enclosed) {
+            // A bubble whose edge is a ring of strokes (hatching, spikes) lets its light out between
+            // them. With every dark pixel a pixel bigger the gaps close. Taken when the light area is
+            // then closed, a bubble around the text (the box in it, mostly light) and much smaller
+            // than the light that ran out (a gap left for a caption written over the outline stays
+            // open; a light pocket in a texture is not a bubble)
+            val sealed = BooleanArray(light.size) { i ->
+                val x = i % areaWidth
+                light[i] && (x == 0 || light[i - 1]) && (x == areaWidth - 1 || light[i + 1]) &&
+                    (i < areaWidth || light[i - areaWidth]) && (i + areaWidth >= light.size || light[i + areaWidth])
+            }
+            val open = filled.count { it }
+            lightArea(sealed)
+                ?.takeIf { found ->
+                    val size = found.count { it }
+                    val (minX, minY, maxX, maxY) = extent(found)
+                    var inBox = 0
+                    for (y in boxTop until boxBottom) {
+                        for (x in boxLeft until boxRight) if (found[y * areaWidth + x]) inBox++
+                    }
+                    closed(found) && size >= textArea * SEALED_FILL && open >= size * SEALED_LEAK &&
+                        inBox >= textArea * MIN_LIGHT_SHARE &&
+                        minX <= boxLeft + 1 && minY <= boxTop + 1 && maxX >= boxRight - 2 && maxY >= boxBottom - 2
+                }
+                ?.let {
+                    filled = it
+                    enclosed = true
+                }
+        }
 
         // The paper's colour: the middle one of each channel (the letters' blended edges would make
         // a mean a shade darker, and a painted patch would show)
@@ -199,35 +262,7 @@ object BubbleEraser {
         }
         val inside = BooleanArray(light.size) { !outside[it] }
 
-        // The whole light area's extent: did it run into the search limit?
-        var minX = Int.MAX_VALUE
-        var minY = Int.MAX_VALUE
-        var maxX = -1
-        var maxY = -1
-        for (i in filled.indices) {
-            if (!filled[i]) continue
-            val x = i % areaWidth
-            val y = i / areaWidth
-            minX = minOf(minX, x)
-            maxX = maxOf(maxX, x)
-            minY = minOf(minY, y)
-            maxY = maxOf(maxY, y)
-        }
-        // Ran into the search limit somewhere. The page edge is not a limit: a bubble cut by the page
-        // edge (as the letterer left it) is closed by it
-        val hitsLimit = (minX == 0 && area.left > 0) || (minY == 0 && area.top > 0) ||
-            (maxX == areaWidth - 1 && area.right < width) || (maxY == areaHeight - 1 && area.bottom < height)
-        // ...but light up to three page edges is the page's own white, not a bubble
-        val pageEdges = listOf(
-            minX == 0 && area.left == 0,
-            minY == 0 && area.top == 0,
-            maxX == areaWidth - 1 && area.right == width,
-            maxY == areaHeight - 1 && area.bottom == height,
-        ).count { it }
-        val enclosed = !hitsLimit && pageEdges < 3
-
         // Light letters on dark art (title pages, narration over a scene): no bubble to erase
-        val textArea = (textBox.width.toLong() * textBox.height).coerceAtLeast(1)
         val lightInBox = countLight(light, area, textBox)
         // (mostly dark box, and the light found is smaller than the box: letters, not a bubble).
         // A small spiky bubble among the art is mostly dark in its box too, but it is closed and
@@ -650,6 +685,15 @@ object BubbleEraser {
      * alone are marks, "…" or the dot of "!", and are followed like letters.
      */
     private const val TONE_SPECKS = 12
+
+    /**
+     * A light area closed only by growing the dark is a bubble when it is at least this share of the
+     * text box...
+     */
+    private const val SEALED_FILL = 0.5f
+
+    /** ...and the light ran out of it to at least this many times its size. */
+    private const val SEALED_LEAK = 1.5f
 
     /** A line is drawn at most this much thicker than the letters' strokes. */
     private const val LINE_STROKE = 2.5f
