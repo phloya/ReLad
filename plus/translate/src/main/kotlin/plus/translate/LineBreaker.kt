@@ -18,8 +18,9 @@ interface TextMeasurer {
 }
 
 /**
- * Text cut where a line may break (after spaces, hyphens; between CJK and Thai letters), each
- * piece measured once: a line's width is then a sum, so many line splits can be tried quickly.
+ * Text cut where a line may break (after spaces, hyphens; between CJK and Thai letters; inside a
+ * long word between syllables, where a hyphen is then added), each piece measured once: a line's
+ * width is then a sum, so many line splits can be tried quickly.
  */
 class TextPieces private constructor(
     val pieces: List<String>,
@@ -27,6 +28,8 @@ class TextPieces private constructor(
     val full: FloatArray,
     /** Width of each piece without trailing spaces (how it looks at the end of a line). */
     val trimmed: FloatArray,
+    /** The piece ends inside a word: a line ending there gets a hyphen ([trimmed] includes it). */
+    val soft: BooleanArray = BooleanArray(pieces.size),
 ) {
     val size: Int get() = pieces.size
 
@@ -37,7 +40,8 @@ class TextPieces private constructor(
         return sum + trimmed[to - 1]
     }
 
-    fun line(from: Int, to: Int): String = pieces.subList(from, to).joinToString("").trim()
+    fun line(from: Int, to: Int): String =
+        pieces.subList(from, to).joinToString("").trim() + (if (soft[to - 1]) "-" else "")
 
     /** The widest single piece: no line can be narrower. */
     val widest: Float get() = trimmed.maxOrNull() ?: 0f
@@ -47,15 +51,40 @@ class TextPieces private constructor(
             val clean = text.replace('\n', ' ').trim()
             val iterator = BreakIterator.getLineInstance(locale)
             iterator.setText(clean)
-            val pieces = mutableListOf<String>()
+            val words = mutableListOf<String>()
             var start = iterator.first()
             var end = iterator.next()
             while (end != BreakIterator.DONE) {
-                pieces += clean.substring(start, end)
+                val piece = clean.substring(start, end)
+                // A short word joined by a hyphen stays whole: "что-/то" is not split, "кто-нибудь" neither
+                val last = words.lastOrNull()
+                if (last != null && last.endsWith('-') &&
+                    (letters(last) <= SHORT_PART || letters(piece) <= SHORT_PART)
+                ) {
+                    words[words.size - 1] = last + piece
+                } else {
+                    words += piece
+                }
                 start = end
                 end = iterator.next()
             }
-            return from(pieces, measurer)
+            val pieces = mutableListOf<String>()
+            val soft = mutableListOf<Boolean>()
+            for (word in words) {
+                val parts = Hyphenation.split(word)
+                parts.forEachIndexed { k, part ->
+                    pieces += part
+                    soft += k < parts.size - 1
+                }
+            }
+            return TextPieces(
+                pieces = pieces,
+                full = FloatArray(pieces.size) { measurer.width(pieces[it]) },
+                trimmed = FloatArray(pieces.size) {
+                    measurer.width(pieces[it].trimEnd() + (if (soft[it]) "-" else ""))
+                },
+                soft = soft.toBooleanArray(),
+            )
         }
 
         /** Every character its own piece: the last resort for a word too long for any line. */
@@ -68,15 +97,73 @@ class TextPieces private constructor(
                 pieces += clean.substring(i, next)
                 i = next
             }
-            return from(pieces, measurer)
+            return TextPieces(
+                pieces = pieces,
+                full = FloatArray(pieces.size) { measurer.width(pieces[it]) },
+                trimmed = FloatArray(pieces.size) { measurer.width(pieces[it].trimEnd()) },
+            )
         }
 
-        private fun from(pieces: List<String>, measurer: TextMeasurer) = TextPieces(
-            pieces = pieces,
-            full = FloatArray(pieces.size) { measurer.width(pieces[it]) },
-            trimmed = FloatArray(pieces.size) { measurer.width(pieces[it].trimEnd()) },
-        )
+        private fun letters(text: String) = text.count { it.isLetter() }
+
+        /** A part of a hyphenated word this short (что-то, кто-нибудь) keeps it on one line. */
+        private const val SHORT_PART = 3
     }
+}
+
+/**
+ * Where a long word may be cut at the end of a line, as Russian (and other Cyrillic) typesetting
+ * does it: between syllables, a consonant going with the vowel after it, never leaving a lone letter
+ * or a part without a vowel, never before й, ь, ъ. Other scripts are not cut.
+ */
+internal object Hyphenation {
+
+    /** [word] (with its trailing spaces and marks) in the parts it may be cut into; whole if none. */
+    fun split(word: String): List<String> {
+        val letters = word.indices.filter { word[it].isLetter() }
+        if (letters.size < MIN_WORD || letters.any { !isCyrillic(word[it]) }) return listOf(word)
+        // Cut points, as indices into word, between two letters of the word's letter run
+        val first = letters.first()
+        val last = letters.last()
+        if (last - first + 1 != letters.size) return listOf(word)
+        val cuts = mutableListOf<Int>()
+        for (i in first + MIN_PART..last + 1 - MIN_PART) {
+            val a = word[i - 1].lowercaseChar()
+            val b = word[i].lowercaseChar()
+            if (b in NO_START) continue
+            // Not between two vowels; a consonant stays with the vowel after it ("ко-шка", not "кошк-а");
+            // after a vowel only before a single consonant: a cluster is cut inside ("вает-ся", not "вае-тся")
+            if (b in VOWELS && (a in VOWELS || a !in SIGNS)) continue
+            if (a in VOWELS && i + 1 <= last && word[i + 1].lowercaseChar() !in VOWELS) continue
+            val left = word.substring(first, i)
+            val right = word.substring(i, last + 1)
+            if (left.none { it.lowercaseChar() in VOWELS } || right.none { it.lowercaseChar() in VOWELS }) continue
+            // The previous cut's part needs a vowel too
+            val previous = cuts.lastOrNull() ?: first
+            if (word.substring(previous, i).none { it.lowercaseChar() in VOWELS }) continue
+            cuts += i
+        }
+        if (cuts.isEmpty()) return listOf(word)
+        val parts = mutableListOf<String>()
+        var from = 0
+        for (cut in cuts) {
+            parts += word.substring(from, cut)
+            from = cut
+        }
+        parts += word.substring(from)
+        return parts
+    }
+
+    private fun isCyrillic(c: Char) = Character.UnicodeBlock.of(c) == Character.UnicodeBlock.CYRILLIC
+
+    /** Vowels of Russian, Ukrainian, Kazakh, Belarusian. */
+    private const val VOWELS = "аеёиоуыэюяіїєәөұүі"
+    private const val SIGNS = "ьъй"
+    private const val NO_START = "ьъй"
+
+    /** Words shorter than this are never cut; each part has at least [MIN_PART] letters. */
+    private const val MIN_WORD = 7
+    private const val MIN_PART = 2
 }
 
 /**
@@ -112,7 +199,8 @@ object LineBreaker {
                     val before = best[k - 1][start]
                     if (before != inf) {
                         val slack = (available - width) / available
-                        val cost = before + slack * slack
+                        // A word cut by a hyphen only when it pays: a line much fuller or the text fitting
+                        val cost = before + slack * slack + (if (text.soft[j - 1]) HYPHEN_COST else 0f)
                         if (cost < best[k][j]) {
                             best[k][j] = cost
                             from[k][j] = start
@@ -124,6 +212,8 @@ object LineBreaker {
             }
         }
         if (best[lines][count] == inf) return null
+        // The text never ends cut
+        if (text.soft[count - 1]) return null
         val ends = IntArray(lines)
         var end = count
         for (k in lines downTo 1) {
@@ -132,4 +222,7 @@ object LineBreaker {
         }
         return ends
     }
+
+    /** What ending a line inside a word costs, against the squared empty share of each line. */
+    private const val HYPHEN_COST = 0.35f
 }

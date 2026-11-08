@@ -206,4 +206,67 @@ class PlainLettersTest {
         (BubbleEraser.luminance(plan.fill) > 200) shouldBe true
         plan.skew shouldBe 0f
     }
+
+    private val measurer = object : TextMeasurer {
+        override fun width(text: String) = text.length * 0.6f
+        override val capHeight = 0.7f
+        override val xHeight = 0.5f
+        override val lineHeight = 1.3f
+    }
+
+    @Test
+    fun `a small closed bubble is erased though the model's box sticks out of it`() {
+        val page = Page()
+        // Hatched art all round a small white bubble with an outline
+        page.fill(Color(200, 200, 200))
+        page.g.color = Color(40, 40, 40)
+        page.g.stroke = BasicStroke(2f)
+        for (k in -page.height until page.width step 6) page.g.drawLine(k, 0, k + page.height, page.height)
+        page.g.color = Color.WHITE
+        page.g.fillOval(150, 100, 100, 80)
+        page.g.color = Color.BLACK
+        page.g.drawOval(150, 100, 100, 80)
+        page.text("HEY! THAT'S", 168, 135, Color.BLACK, size = 14f)
+        page.text("KIDNAPPING!", 166, 156, Color.BLACK, size = 14f)
+        val pixels = page.pixels
+        // Half of the box is out of the bubble, on the art
+        val region =
+            TextRegion(RegionType.Bubble, Box(195, 105, 300, 175), "HEY! THAT'S KIDNAPPING!", "ЭЙ! ЭТО ЖЕ ПОХИЩЕНИЕ!")
+        val plan = PageLettering.plan(pixels, page.width, page.height, listOf(region), "ru", { _, _ -> measurer })
+            .single()
+
+        // The original letters are gone: the bubble is white inside
+        for (y in 118 until 162) {
+            for (x in 166 until 236) (BubbleEraser.luminance(pixels[y * page.width + x]) > 200) shouldBe true
+        }
+        // and the translation is set in it, not on the art beside it
+        for (line in plan.block.lines) (line.centerX in 160f..240f) shouldBe true
+    }
+
+    @Test
+    fun `a sign on a shaded light background is not painted over with one colour`() {
+        val page = Page()
+        // A colour page's light sky, and a figure's pink hat the letters run on onto
+        page.g.paint = GradientPaint(0f, 0f, Color(190, 240, 160), 250f, 0f, Color(255, 190, 230))
+        page.g.fillRect(0, 0, page.width, page.height)
+        page.fill(Color(230, 90, 150), Box(200, 100, 400, 200))
+        val clean = page.pixels
+        page.text("TV ANIME BERSERK", 40, 160, Color(220, 30, 70), size = 36f, outline = Color.WHITE)
+        val pixels = page.pixels
+        val region = TextRegion(RegionType.Other, Box(40, 125, 240, 170), "TVアニメ", "ТВ-АНИМЕ")
+        PageLettering.plan(pixels, page.width, page.height, listOf(region), "ru", { _, _ -> measurer })
+
+        // Where there were no letters the background is as it was: no patch of one colour
+        val letters = BooleanArray(clean.size) { PlainLetters.distance(page.pixels[it], clean[it]) > 20f }
+        for (y in 110 until 185) {
+            for (x in 30 until 195) {
+                var near = false
+                for (dy in -6..6) for (dx in -6..6) if (letters[(y + dy) * page.width + x + dx]) near = true
+                if (!near) {
+                    (PlainLetters.distance(pixels[y * page.width + x], clean[y * page.width + x]) < 12f) shouldBe
+                        true
+                }
+            }
+        }
+    }
 }

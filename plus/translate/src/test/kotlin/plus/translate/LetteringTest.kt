@@ -35,6 +35,39 @@ class LetteringTest {
     }
 
     @Test
+    fun `long Russian words are cut between syllables, short hyphenated ones are not`() {
+        Hyphenation.split("ОКАЗЫВАЕТСЯ, ") shouldBe listOf("ОКА", "ЗЫ", "ВАЕТ", "СЯ, ")
+        val parts = Hyphenation.split("ПОЗАИМСТВОВАТЬ!!!")
+        parts shouldBe listOf("ПО", "ЗАИМ", "СТВО", "ВАТЬ!!!")
+        // Every part has a vowel and two letters; no part starts with Ь, Ъ, Й
+        for (part in parts) {
+            (part.count { it.isLetter() } >= 2) shouldBe true
+            part.any { it.lowercaseChar() in "аеёиоуыэюя" } shouldBe true
+            (part.first().lowercaseChar() !in "ьъй") shouldBe true
+        }
+        Hyphenation.split("ДЕНЬ ") shouldBe listOf("ДЕНЬ ")
+        Hyphenation.split("SOMETHING") shouldBe listOf("SOMETHING")
+        // "что-то" stays on one line, and so does a short name ("Су-хо")
+        pieces("ЧТО-ТО ДРУГОЕ").pieces.first() shouldBe "ЧТО-ТО "
+        pieces("КАКОЙ СУ-ХО СМЫШЛЁНЫЙ").pieces[1] shouldBe "СУ-ХО "
+    }
+
+    @Test
+    fun `a long word is cut with a hyphen rather than the text shrunk`() {
+        val text = TextPieces.of("МНЕ НУЖНО ТЕБЯ ПОЗАИМСТВОВАТЬ!!!", measurer, Locale.forLanguageTag("ru"))
+        // Size 10: a character is 6 px; the long word (17 characters, 102 px) is wider than the lines
+        val ends = LineBreaker.split(text, 10f, floatArrayOf(70f, 70f, 70f, 70f)).shouldNotBeNull()
+        var start = 0
+        val lines = ends.map { end -> text.line(start, end).also { start = end } }
+        lines.any { it.endsWith("-") } shouldBe true
+        lines.joinToString("") { it.removeSuffix("-") + " " }.replace(" ", "") shouldBe "МНЕНУЖНОТЕБЯПОЗАИМСТВОВАТЬ!!!"
+        // Where the words fit, none is cut
+        val roomy = LineBreaker.split(text, 10f, floatArrayOf(200f, 200f)).shouldNotBeNull()
+        start = 0
+        roomy.map { end -> text.line(start, end).also { start = end } }.none { it.endsWith("-") } shouldBe true
+    }
+
+    @Test
     fun `text too long for the lines does not fit`() {
         LineBreaker.split(pieces("A VERY LONG SENTENCE THAT CANNOT FIT"), 10f, floatArrayOf(40f, 40f)).shouldBeNull()
     }
