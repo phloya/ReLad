@@ -99,6 +99,8 @@ object BubbleEraser {
         wholeCoverage: Float = 0f,
         /** Letters are followed past the box along their lines (not on a sign: drawings on it would be too). */
         followLetters: Boolean = true,
+        /** Other texts' boxes: their letters are not followed into (an aside beside a bubble's text). */
+        others: List<Box> = emptyList(),
     ): Result {
         val area = Box(
             left = searchBox.left.coerceIn(0, width),
@@ -278,7 +280,7 @@ object BubbleEraser {
         // Only letter-like spots are letters: a line much bigger than them is not erased outside the
         // text's box (the outline stays; a letter touching the art is still erased, the art beyond
         // it not), and specks of a tone don't lead the search for letters on across it
-        val spots = if (enclosed) null else Spots.of(inside, filled, areaWidth, area, textBox)
+        val spots = if (enclosed) null else Spots.of(inside, filled, areaWidth, area, textBox, width)
         spots?.lines?.let { lines ->
             for (i in inside.indices) {
                 if (!lines[i]) continue
@@ -353,22 +355,22 @@ object BubbleEraser {
         // A closed bubble is erased whole: the model's box is rough and may miss a line of the text.
         // Not too big for the text, though: a light area that size is more likely art than a bubble.
         val whole = enclosed && lobe <= textArea * MAX_BUBBLE_TO_TEXT && coverage >= wholeCoverage
+
         // Open bubble or white page: only where the letters are, so no white spills onto the art.
         // Letters are looked for a little around the model's rough box (it often misses some) and
         // along their line for as long as it goes on
-        val ink = if (whole || !followLetters) {
-            null
-        } else {
-            inkBox(
-                pixels,
-                width,
-                area,
-                textBox.expanded(INK_SEARCH, width, height),
-                inside,
-                filled,
-                spots?.specks,
-            )
-        }
+        fun letters(others: List<Box>) = inkBox(
+            pixels,
+            width,
+            area,
+            textBox.expanded(INK_SEARCH, width, height),
+            inside,
+            filled,
+            spots?.specks,
+            others,
+        )
+        // (another text's letters are its own to erase)
+        val ink = if (whole || !followLetters) null else letters(others)
         val paint = if (whole) {
             Box(area.left, area.top, area.right, area.bottom)
         } else {
@@ -382,8 +384,11 @@ object BubbleEraser {
             if (x < 0) -1 else area.left + x
         }
         val component = Room.ofRows(area.top + top, spans)
-        // An open bubble's light area may run on into the art: text stays near the original letters
-        val room = if (whole) component else component.within((ink ?: paint).expanded(OPEN_ROOM, width, height))
+        // An open bubble's light area may run on into the art: text stays near the original letters,
+        // those of a text beside it too (a sentence's end may take its beginning's place; the layout
+        // keeps off another text's place first)
+        val near = if (ink == null || others.isEmpty()) ink else letters(emptyList())
+        val room = if (whole) component else component.within((near ?: paint).expanded(OPEN_ROOM, width, height))
 
         val fill = lobeLight.toFloat() / lobe.coerceAtLeast(1)
 
@@ -473,11 +478,15 @@ object BubbleEraser {
         light: BooleanArray,
         /** Specks not followed (a tone's dots); `null`: every dark spot is. */
         specks: BooleanArray?,
+        /** Other texts' boxes: letters in them (and not in [textBox]) are theirs. */
+        others: List<Box>,
     ): Box? {
+        val theirs = others.filter { intersect(it, area) != null }
         fun letter(x: Int, y: Int): Boolean {
             val i = (y - area.top) * area.width + (x - area.left)
             return inside[i] && !light[i] && (specks == null || !specks[i]) &&
-                luminance(pixels[y * width + x]) < LIGHT_THRESHOLD
+                luminance(pixels[y * width + x]) < LIGHT_THRESHOLD &&
+                (theirs.isEmpty() || textBox.holds(x, y) || theirs.none { it.holds(x, y) })
         }
         var left = Int.MAX_VALUE
         var top = Int.MAX_VALUE
@@ -494,9 +503,11 @@ object BubbleEraser {
             }
         }
         if (right < 0) return null
-        // Along the line the next letter is at most a word gap away; the next line, a line gap.
-        // Then along the lines found again: the next line may be longer
+        // Along the line the next letter is at most a word gap away; the line before too, the next
+        // line a line's height (an aside's lines may be spaced widely). Then along the lines found
+        // again: the next line may be longer
         val gap = ((bottom - top + 1) * LINE_GAP).toInt().coerceIn(MIN_GAP, MAX_GAP)
+        val below = ((bottom - top + 1) * NEXT_LINE_GAP).toInt().coerceIn(MIN_GAP, MAX_GAP)
         repeat(2) {
             var empty = 0
             var x = right + 1
@@ -512,7 +523,7 @@ object BubbleEraser {
             }
             empty = 0
             var y = bottom + 1
-            while (y < area.bottom && empty <= gap) {
+            while (y < area.bottom && empty <= below) {
                 if ((left..right).any { letter(it, y) }) bottom = y.also { empty = 0 } else empty++
                 y++
             }
@@ -533,7 +544,14 @@ object BubbleEraser {
      */
     private class Spots(val lines: BooleanArray, val specks: BooleanArray) {
         companion object {
-            fun of(inside: BooleanArray, filled: BooleanArray, areaWidth: Int, area: Box, textBox: Box): Spots? {
+            fun of(
+                inside: BooleanArray,
+                filled: BooleanArray,
+                areaWidth: Int,
+                area: Box,
+                textBox: Box,
+                pageWidth: Int,
+            ): Spots? {
                 val id = IntArray(inside.size)
                 val sizes = ArrayList<Int>()
                 val bounds = ArrayList<IntArray>()
@@ -562,6 +580,31 @@ object BubbleEraser {
                     sizes += size
                     bounds += b
                 }
+                fun side(k: Int) = maxOf(bounds[k][2] - bounds[k][0], bounds[k][3] - bounds[k][1]) + 1
+
+                // Specks many close together: a tone's dots. A few alone are marks ("…", the dot of "!")
+                fun crowded(small: List<Int>, cell: Int): BooleanArray {
+                    val grid = HashMap<Long, Int>()
+                    fun key(k: Int, dx: Int, dy: Int): Long {
+                        val gx = (bounds[k][0] + bounds[k][2]) / 2 / cell + dx
+                        val gy = (bounds[k][1] + bounds[k][3]) / 2 / cell + dy
+                        return gx.toLong() shl 32 or (gy.toLong() and 0xFFFFFFFF)
+                    }
+                    for (k in small) grid[key(k, 0, 0)] = (grid[key(k, 0, 0)] ?: 0) + 1
+                    val crowded = BooleanArray(sizes.size)
+                    for (k in small) {
+                        var around = 0
+                        for (dy in -1..1) for (dx in -1..1) around += grid[key(k, dx, dy)] ?: 0
+                        crowded[k] = around > TONE_SPECKS
+                    }
+                    return crowded
+                }
+
+                // A tone's dots by the page's scale first: a text written just by a tone may have more
+                // of them around it than letters, and they would pass for its letters
+                val dot = (pageWidth * TONE_DOT).coerceAtLeast(1f)
+                val tone = crowded(sizes.indices.filter { side(it) <= dot }, (dot * TONE_CELL).toInt().coerceAtLeast(1))
+
                 // The letters: spots of some size within the text box (a little around it: the
                 // model's box is rough), not the outline around them. Their typical height and stroke
                 // by ink, not by count: many small bits of art beside big letters don't make the
@@ -574,8 +617,8 @@ object BubbleEraser {
                 )
                 val letters = sizes.indices.filter { k ->
                     val b = bounds[k]
-                    sizes[k] >= MIN_LETTER_SPOT && b[0] >= near.left && b[2] < near.right && b[1] >= near.top &&
-                        b[3] < near.bottom
+                    !tone[k] && sizes[k] >= MIN_LETTER_SPOT && b[0] >= near.left && b[2] < near.right &&
+                        b[1] >= near.top && b[3] < near.bottom
                 }
                 if (letters.isEmpty()) return null
                 fun byInk(value: (Int) -> Int): Int {
@@ -601,25 +644,9 @@ object BubbleEraser {
                     (b[3] - b[1] + 1 > height * LINE_SPAN || b[2] - b[0] + 1 > textBox.width + height * LINE_SPAN) &&
                         thickness(k) <= stroke * LINE_STROKE
                 }
-                // Specks of a tone: many close together. A few alone are marks ("…", the dot of "!")
-                val small = sizes.indices.filter { k ->
-                    maxOf(bounds[k][2] - bounds[k][0], bounds[k][3] - bounds[k][1]) + 1 <= height * SPECK_SHARE
-                }
-                val cell = height.coerceAtLeast(1)
-                val grid = HashMap<Long, Int>()
-                fun key(gx: Int, gy: Int) = gx.toLong() shl 32 or (gy.toLong() and 0xFFFFFFFF)
-                for (k in small) {
-                    val g = key((bounds[k][0] + bounds[k][2]) / 2 / cell, (bounds[k][1] + bounds[k][3]) / 2 / cell)
-                    grid[g] = (grid[g] ?: 0) + 1
-                }
-                val speck = BooleanArray(sizes.size)
-                for (k in small) {
-                    val gx = (bounds[k][0] + bounds[k][2]) / 2 / cell
-                    val gy = (bounds[k][1] + bounds[k][3]) / 2 / cell
-                    var around = 0
-                    for (dy in -1..1) for (dx in -1..1) around += grid[key(gx + dx, gy + dy)] ?: 0
-                    speck[k] = around > TONE_SPECKS
-                }
+                // Then specks against the letters, within a letter's height of each other
+                val crowd = crowded(sizes.indices.filter { side(it) <= height * SPECK_SHARE }, height.coerceAtLeast(1))
+                val speck = BooleanArray(sizes.size) { tone[it] || crowd[it] }
                 return Spots(
                     BooleanArray(inside.size) { id[it] > 0 && line[id[it] - 1] },
                     BooleanArray(inside.size) { id[it] > 0 && speck[id[it] - 1] },
@@ -627,6 +654,8 @@ object BubbleEraser {
             }
         }
     }
+
+    private fun Box.holds(x: Int, y: Int) = x in left until right && y in top until bottom
 
     private fun intersect(a: Box, b: Box): Box? {
         val box = Box(maxOf(a.left, b.left), maxOf(a.top, b.top), minOf(a.right, b.right), minOf(a.bottom, b.bottom))
@@ -653,6 +682,9 @@ object BubbleEraser {
 
     /** Letters on one line are at most this share of the line's height apart (word gaps)... */
     private const val LINE_GAP = 0.8f
+
+    /** ...the next line below, at most a line's height... */
+    private const val NEXT_LINE_GAP = 1f
 
     /** ...within these limits, in pixels. */
     private const val MIN_GAP = 6
@@ -685,6 +717,15 @@ object BubbleEraser {
      * alone are marks, "…" or the dot of "!", and are followed like letters.
      */
     private const val TONE_SPECKS = 12
+
+    /**
+     * A tone's dot is at most this share of the page's width either way, whatever the letters' size
+     * (a letter never is this small)...
+     */
+    private const val TONE_DOT = 0.005f
+
+    /** ...and more than [TONE_SPECKS] of them are within this many of its sizes around it. */
+    private const val TONE_CELL = 2f
 
     /**
      * A light area closed only by growing the dark is a bubble when it is at least this share of the

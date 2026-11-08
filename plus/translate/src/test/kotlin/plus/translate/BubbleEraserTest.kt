@@ -248,6 +248,46 @@ class BubbleEraserTest {
     }
 
     @Test
+    fun `an aside under a tone keeps the tone, its next line is its own`() {
+        val page = Page(width = 800, height = 300)
+        page.rect(0, 0, 800, 300, white)
+        // A tone of small dots ending just above the aside
+        for (y in 20 until 110 step 6) for (x in 300 until 500 step 6) page.rect(x, y, x + 3, y + 3, black)
+        // Its first line, the model's box on it (and on the tone above it), then the next line a
+        // line's height below
+        for (x in 380 until 410 step 10) page.rect(x, 116, x + 5, 130, black)
+        for (x in 380 until 410 step 10) page.rect(x, 142, x + 5, 156, black)
+
+        BubbleEraser.erase(page.pixels, page.width, page.height, Box(375, 100, 410, 132), Box(340, 68, 445, 164))
+
+        page[382, 120] shouldBe white
+        page[382, 150] shouldBe white
+        // The dots right above the letters and further off stay
+        page[385, 105] shouldBe black
+        page[331, 51] shouldBe black
+    }
+
+    @Test
+    fun `an open bubble's letters are not followed into another text's`() {
+        val page = Page(width = 400, height = 300)
+        page.rect(0, 0, 400, 300, white)
+        for (x in 180 until 220 step 10) page.rect(x, 100, x + 5, 114, black) // the other text
+        for (x in 180 until 220 step 10) page.rect(x, 125, x + 5, 139, black) // this one, just below
+
+        BubbleEraser.analyze(
+            page.pixels,
+            page.width,
+            page.height,
+            Box(175, 120, 225, 145),
+            Box(125, 70, 275, 195),
+            others = listOf(Box(175, 95, 225, 117)),
+        ).let { BubbleEraser.paint(page.pixels, page.width, it) }
+
+        page[182, 130] shouldBe white
+        page[182, 105] shouldBe black
+    }
+
+    @Test
     fun `an open bubble's line is erased as far as it goes, past the model's box`() {
         val page = Page()
         page.rect(0, 0, 200, 200, white)
