@@ -72,7 +72,7 @@ class PageTranslator(
 
     override suspend fun process(input: ByteArray, context: PageContext): ProcessedPage {
         // Drawn in reading order: the reader's page and the ones after it first
-        val ticket = readingOrder.ticket(context.chapterId, context.pageIndex)
+        val ticket = readingOrder.ticket(context.chapterId, context.pageIndex, context.readingFrom)
         val s = settings()
         // Already in the reader's language (a Russian edition read in Russian): nothing to pay for
         if (sameLanguage(context.sourceLanguage, s.language.code)) return ProcessedPage(input)

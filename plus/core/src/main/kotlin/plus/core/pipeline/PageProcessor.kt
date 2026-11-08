@@ -60,4 +60,9 @@ data class PageContext(
     /** The source's description of the manga, for translators to know what it is about. */
     val mangaDescription: String? = null,
     val mangaGenres: List<String> = emptyList(),
+    /**
+     * The page the reader opened this chapter at: it and the pages after it are wanted first.
+     * `null`: read from the start (a chapter done in the background).
+     */
+    val readingFrom: Int? = null,
 )

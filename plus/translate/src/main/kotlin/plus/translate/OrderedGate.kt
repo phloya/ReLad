@@ -72,10 +72,11 @@ class OrderedGate(private val permits: Int) {
 }
 
 /**
- * Tickets for [OrderedGate] in reading order: a chapter's pages from the first one asked for (the
- * page open in the reader) to the end, then the ones before it; the chapter open first goes first,
- * the next one ahead after it. Pages come in the order their images finish loading, which is not
- * the order they are read in.
+ * Tickets for [OrderedGate] in reading order: a chapter's pages from the page the reader opened
+ * ([readingFrom][ticket], the first page when it is done in the background) to the end, then the
+ * ones before it; the chapter asked for first goes first, the next one ahead after it. Pages come
+ * in the order their images finish loading, which is not the order they are read in: the first
+ * page to come in can't stand for the page opened.
  */
 class ReadingOrder {
 
@@ -84,8 +85,15 @@ class ReadingOrder {
     private val starts = java.util.concurrent.ConcurrentHashMap<Long, Start>()
     private val chapters = java.util.concurrent.atomic.AtomicLong()
 
-    fun ticket(chapterId: Long, pageIndex: Int): Long {
-        val start = starts.computeIfAbsent(chapterId) { Start(chapters.incrementAndGet(), pageIndex) }
+    fun ticket(chapterId: Long, pageIndex: Int, readingFrom: Int? = null): Long {
+        val start = starts.compute(chapterId) { _, known ->
+            when {
+                known == null -> Start(chapters.incrementAndGet(), readingFrom ?: 0)
+                // Done in the background first, then opened in the reader: from the page opened
+                readingFrom != null && readingFrom != known.pageIndex -> Start(known.order, readingFrom)
+                else -> known
+            }
+        }!!
         val inChapter = if (pageIndex >= start.pageIndex) {
             (pageIndex - start.pageIndex).toLong()
         } else {
