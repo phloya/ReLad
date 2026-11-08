@@ -108,6 +108,7 @@ internal class TranslatePreferences(graph: PlusGraph) {
     val provider = prefs.string(TranslateFeature.id, "provider")
     val language = prefs.string(TranslateFeature.id, "language", defaultLanguage())
     val soundEffects = prefs.boolean(TranslateFeature.id, "sfx", true)
+
     // Off unless turned on: a chapter is translated when asked for, not one the reader may never open
     val nextChapter = prefs.boolean(TranslateFeature.id, "next_chapter", false)
 
