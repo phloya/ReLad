@@ -269,4 +269,68 @@ class PlainLettersTest {
             }
         }
     }
+
+    @Test
+    fun `a thin O with a big hole is erased with the other letters`() {
+        val page = Page()
+        page.fill(Color.BLACK)
+        page.text("TO THE", 60, 140, Color.WHITE)
+        // A thin ring: most of its piece is the hole, of the background's colour
+        page.g.color = Color.WHITE
+        page.g.stroke = BasicStroke(3f)
+        page.g.drawOval(200, 112, 26, 30)
+        page.text("YOUNG", 240, 140, Color.WHITE)
+        val pixels = page.pixels
+        val region = TextRegion(RegionType.Bubble, Box(55, 105, 345, 150), "TO THE O YOUNG", "К ЮНОМУ")
+        PageLettering.plan(pixels, page.width, page.height, listOf(region), "ru", { _, _ -> measurer })
+
+        for (y in 108 until 146) {
+            for (x in 196 until 232) (BubbleEraser.luminance(pixels[y * page.width + x]) < 60) shouldBe true
+        }
+    }
+
+    @Test
+    fun `white letters in a dark bubble on a white page are erased and set inside the bubble`() {
+        val page = Page()
+        page.fill(Color.WHITE)
+        // Two overlapping round lobes, the model's box reaching past them onto the white page
+        page.g.color = Color.BLACK
+        page.g.fillOval(60, 40, 170, 150)
+        page.g.fillOval(150, 110, 200, 170)
+        page.text("YOUNG MONARCH,", 85, 115, Color.WHITE, size = 18f)
+        page.text("I SHALL BID YOU", 175, 180, Color.WHITE, size = 18f)
+        page.text("FAREWELL", 195, 205, Color.WHITE, size = 18f)
+        val pixels = page.pixels
+        val region = TextRegion(
+            RegionType.Bubble,
+            Box(70, 90, 345, 215),
+            "YOUNG MONARCH, I SHALL BID YOU FAREWELL",
+            "ЮНЫЙ МОНАРХ, ПРОЩАЮСЬ С ВАМИ",
+        )
+        val plan = PageLettering.plan(pixels, page.width, page.height, listOf(region), "ru", { _, _ -> measurer })
+            .single()
+
+        // No white letters left in the bubble
+        for (y in 95 until 212) {
+            for (x in 80 until 340) {
+                val inLobe = { cx: Double, cy: Double, rx: Double, ry: Double ->
+                    val dx = (x - cx) / (rx - 6)
+                    val dy = (y - cy) / (ry - 6)
+                    dx * dx + dy * dy < 1
+                }
+                if (inLobe(145.0, 115.0, 85.0, 75.0) || inLobe(250.0, 195.0, 100.0, 85.0)) {
+                    (BubbleEraser.luminance(pixels[y * page.width + x]) < 60) shouldBe true
+                }
+            }
+        }
+        // The translation is white, and set on the bubble, not on the white page around it
+        (BubbleEraser.luminance(plan.fill) > 200) shouldBe true
+        for (line in plan.block.lines) {
+            val half = measurer.width(line.text) * plan.block.size / 2
+            for (x in listOf(line.centerX - half + 1, line.centerX + half - 1)) {
+                val y = (line.baseline - plan.block.size * 0.3f).toInt()
+                (BubbleEraser.luminance(page.pixels[y * page.width + x.toInt()]) < 60) shouldBe true
+            }
+        }
+    }
 }

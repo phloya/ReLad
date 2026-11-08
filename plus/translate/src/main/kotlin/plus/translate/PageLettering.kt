@@ -710,7 +710,7 @@ object PageLettering {
         val region = plan.region
         val font = plan.font
         if (plan.text.isBlank()) return null
-        val pieces = TextPieces.of(plan.text, font, plan.locale)
+        val pieces = TextPieces.of(plan.text, font, plan.locale, hyphenate = false)
         val bubble = plan.bubble
         val ink = plan.ink
         // A sign erased whole gets its text in its middle: the model's box may hold only part of it
@@ -747,14 +747,15 @@ object PageLettering {
                 val base = letters.box
                 val grow = (base.width * ART_WIDEN).toInt()
                 val rise = base.height / 2
-                room = Room.of(
-                    Box(
-                        maxOf(base.left - grow, letters.room.left, 0),
-                        maxOf(base.top - rise, letters.room.top, 0),
-                        minOf(base.right + grow, letters.room.right, width),
-                        minOf(base.bottom + rise, letters.room.bottom, height),
-                    ),
+                // (on a plain colour, the background's shape: a dark bubble's, not the page around
+                // it; on a texture or a shade, the background found is patchy: the rectangle)
+                val rect = Box(
+                    maxOf(base.left - grow, letters.room.left, 0),
+                    maxOf(base.top - rise, letters.room.top, 0),
+                    minOf(base.right + grow, letters.room.right, width),
+                    minOf(base.bottom + rise, letters.room.bottom, height),
                 )
+                room = if (letters.flat) plainRoom(letters, rect) else Room.of(rect)
                 style = TextBlockLayout.Style(font, plan.lineHeight, 0f, 0f)
             }
             onArt || bubble?.room == null -> {
@@ -794,6 +795,8 @@ object PageLettering {
         }
         // Beside another text in the same bubble a little smaller rather than over it: only then
         // the whole bubble
+        // (a long word is cut between syllables only in [fallback]: when it won't fit even at the
+        // smallest readable size, never to keep the text bigger)
         val beside = if (ownRoom !== room) {
             TextBlockLayout.place(pieces, ownRoom, anchor, target, minSize, style, anchorX)
                 ?: fallback(plan, ownRoom, anchor, minSize, height, style, inShape = true)
@@ -847,6 +850,54 @@ object PageLettering {
                 thicken = thicken,
             )
         }
+    }
+
+    /**
+     * The room in [box] that is the letters' background (or the letters): a dark bubble's shape, not
+     * the white page around it. Each row's longest stretch of it, a little in from its ends.
+     */
+    private fun plainRoom(letters: PlainLetters.Letters, box: Box): Room {
+        val area = letters.area
+        val pad = (letters.letterHeight * PLAIN_ROOM_PAD).toInt()
+        // (a letter's soft edge left out of both is no end of the room)
+        val gap = (letters.letterHeight * PLAIN_ROOM_GAP).toInt().coerceAtLeast(1)
+        val rows = IntArray(box.height * 2) { -1 }
+        for (y in box.top until box.bottom) {
+            val ay = y - area.top
+            if (ay < 0 || ay >= area.height) continue
+            fun room(x: Int): Boolean {
+                val ax = x - area.left
+                if (ax < 0 || ax >= area.width) return false
+                val i = ay * area.width + ax
+                return letters.backgroundMask[i] || letters.erase[i]
+            }
+            var bestFrom = -1
+            var bestTo = -1
+            var x = box.left
+            while (x < box.right) {
+                if (!room(x)) {
+                    x++
+                    continue
+                }
+                val from = x
+                var end = x + 1
+                var k = x + 1
+                while (k < box.right && k - end <= gap) {
+                    if (room(k)) end = k + 1
+                    k++
+                }
+                if (end - from > bestTo - bestFrom) {
+                    bestFrom = from
+                    bestTo = end
+                }
+                x = end + 1
+            }
+            if (bestTo - bestFrom > pad * 2) {
+                rows[(y - box.top) * 2] = bestFrom + pad
+                rows[(y - box.top) * 2 + 1] = bestTo - 1 - pad
+            }
+        }
+        return Room.ofRows(box.top, rows)
     }
 
     /**
@@ -1041,7 +1092,7 @@ object PageLettering {
     ): TextBlock? {
         if (plan.region.type == RegionType.Sfx) {
             // A sound in one piece, a word per line, even if it runs a little out of its box
-            val words = TextPieces.of(plan.text, plan.font, plan.locale)
+            val words = TextPieces.of(plan.text, plan.font, plan.locale, hyphenate = false)
             val half = maxOf(words.widest * size, plan.region.box.width.toFloat()) / 2 + 1
             val middle = (plan.region.box.left + plan.region.box.right) / 2f
             val wide = Room.of(Box((middle - half).toInt(), 0, (middle + half).toInt() + 1, height))
@@ -1063,29 +1114,36 @@ object PageLettering {
             }
         }
         if (right <= left) return null
-        val words = TextPieces.of(plan.text, plan.font, plan.locale)
-        // Smaller first, in the bubble's shape: a letterer shrinks a line before splitting a word
-        // (as small as it takes for the longest word to fit the bubble's width, if that's smaller)
-        val wordFits = if (words.widest > 0) (right - left) * WORD_FIT / words.widest else size
-        val smallest = if (inShape) {
-            // Beside another text: a little smaller, not tiny (then rather the whole bubble)
-            maxOf(size * BESIDE_SCALE, MIN_PIXELS)
-        } else {
-            maxOf(minOf(size * LAST_RESORT_SCALE, wordFits), MIN_PIXELS)
-        }
+        val words = TextPieces.of(plan.text, plan.font, plan.locale, hyphenate = false)
+        val anchorX = plan.ink?.box?.let { (it.left + it.right) / 2f }
+        // Smaller first, whole words, in the bubble's shape: a letterer shrinks a line before
+        // splitting a word (beside another text only a little: then rather the whole bubble)
+        val readable = maxOf(size * if (inShape) BESIDE_SCALE else SHRINK_FIRST, MIN_PIXELS)
+        TextBlockLayout.place(words, room, anchor, size, readable, style, anchorX)?.let { return it }
+        // Then a word wider than the bubble even so is cut between syllables, it alone and once,
+        // rather than the text set unreadably small; never to set the text bigger than it would
+        // be whole (no larger than [size])
         TextBlockLayout.place(
-            words,
+            TextPieces.of(
+                plan.text,
+                plan.font,
+                plan.locale,
+                hyphenate = true,
+                cutWiderThan = (right - left) * WORD_FIT / readable,
+            ),
             room,
             anchor,
             size,
-            smallest,
+            maxOf(size * LAST_RESORT_SCALE, MIN_PIXELS),
             style,
-            plan.ink?.box?.let {
-                (it.left + it.right) / 2f
-            },
+            anchorX,
         )
             ?.let { return it }
         if (inShape) return null
+        // Smaller still, whole words (as small as it takes for the longest word to fit)
+        val wordFits = if (words.widest > 0) (right - left) * WORD_FIT / words.widest else size
+        val smallest = maxOf(minOf(size * LAST_RESORT_SCALE, wordFits), MIN_PIXELS)
+        TextBlockLayout.place(words, room, anchor, readable, smallest, style, anchorX)?.let { return it }
         // Then out of the shape (the bubble's width, any height); only then a word split by letters
         val tall = Room.of(Box(left, 0, right + 1, height))
         val loose = TextBlockLayout.Style(style.measurer, style.lineHeight, 0f, 0f)
@@ -1101,6 +1159,9 @@ object PageLettering {
 
     /** Before a word is split, text may get this much smaller than its smallest normal size... */
     private const val LAST_RESORT_SCALE = 0.7f
+
+    /** Before a word is cut between syllables, text gets this much smaller than its smallest normal size. */
+    private const val SHRINK_FIRST = 0.85f
 
     /** Beside another text in its bubble, text gets at most this much smaller than its smallest normal size. */
     private const val BESIDE_SCALE = 0.8f
@@ -1146,6 +1207,12 @@ object PageLettering {
     /** Below these the box is not in a bubble at all (looser than for moving a box: an open bubble is uneven). */
     private const val FLOATING_COVERAGE = 0.6f
     private const val MIN_CLOSED_COVERAGE = 0.3f
+
+    /** Text on a plain background keeps this share of a letter's height from the background's edge. */
+    private const val PLAIN_ROOM_PAD = 0.3f
+
+    /** ...and goes on over gaps this share of a letter's height wide. */
+    private const val PLAIN_ROOM_GAP = 0.5f
     private const val MIN_CLOSED_ROWS = 0.7f
 
     /** A sign drawn over the original is at least this share of the page's text size. */
@@ -1216,8 +1283,11 @@ object PageLettering {
     /** A CJK character's ink height as a share of the text size. */
     private const val CJK_CAP = 0.88f
 
-    /** Bubbles whose own size is within this share of the page's keep the page's size. */
-    private const val SAME_SIZE = 0.4f
+    /**
+     * Bubbles whose own size is within this share of the page's keep the page's size; others keep
+     * their own, about the original's (a whisper stays small, a shout big).
+     */
+    private const val SAME_SIZE = 0.15f
 
     private const val DEFAULT_SIZE = 0.022f
     private const val MIN_SIZE = 0.011f

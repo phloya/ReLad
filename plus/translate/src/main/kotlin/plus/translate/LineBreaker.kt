@@ -47,7 +47,18 @@ class TextPieces private constructor(
     val widest: Float get() = trimmed.maxOrNull() ?: 0f
 
     companion object {
-        fun of(text: String, measurer: TextMeasurer, locale: Locale): TextPieces {
+        /**
+         * [hyphenate]: long words may also be cut between syllables. A letterer does that only when a
+         * word won't fit the bubble's width at the smallest readable size: try without first.
+         */
+        fun of(
+            text: String,
+            measurer: TextMeasurer,
+            locale: Locale,
+            hyphenate: Boolean = false,
+            /** With [hyphenate]: only words wider than this (at size 1) are cut. */
+            cutWiderThan: Float = 0f,
+        ): TextPieces {
             val clean = text.replace('\n', ' ').trim()
             val iterator = BreakIterator.getLineInstance(locale)
             iterator.setText(clean)
@@ -56,10 +67,11 @@ class TextPieces private constructor(
             var end = iterator.next()
             while (end != BreakIterator.DONE) {
                 val piece = clean.substring(start, end)
-                // A short word joined by a hyphen stays whole: "что-/то" is not split, "кто-нибудь" neither
+                // A short word joined by a hyphen stays whole: "что-/то", "кто-/нибудь", "какой-/то",
+                // "Су-/хо" are not split ("Цукишима-/кун" may be). As a last resort, any may
                 val last = words.lastOrNull()
-                if (last != null && last.endsWith('-') &&
-                    (letters(last) <= SHORT_PART || letters(piece) <= SHORT_PART)
+                if (!hyphenate && last != null && last.endsWith('-') &&
+                    (letters(last) <= SHORT_PART || letters(piece) <= SHORT_END)
                 ) {
                     words[words.size - 1] = last + piece
                 } else {
@@ -71,7 +83,8 @@ class TextPieces private constructor(
             val pieces = mutableListOf<String>()
             val soft = mutableListOf<Boolean>()
             for (word in words) {
-                val parts = Hyphenation.split(word)
+                val cut = hyphenate && measurer.width(word.trim()) > cutWiderThan
+                val parts = if (cut) Hyphenation.split(word) else listOf(word)
                 parts.forEachIndexed { k, part ->
                     pieces += part
                     soft += k < parts.size - 1
@@ -106,8 +119,11 @@ class TextPieces private constructor(
 
         private fun letters(text: String) = text.count { it.isLetter() }
 
-        /** A part of a hyphenated word this short (что-то, кто-нибудь) keeps it on one line. */
+        /** A hyphenated word whose first part is this short (что-то, кто-нибудь)... */
         private const val SHORT_PART = 3
+
+        /** ...or its last (какой-то, Су-хо) stays on one line. */
+        private const val SHORT_END = 2
     }
 }
 
