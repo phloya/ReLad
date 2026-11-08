@@ -6,6 +6,7 @@ import androidx.preference.PreferenceManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import plus.core.ai.AiClient
 import plus.core.ai.AiClients
@@ -44,6 +45,14 @@ class PlusGraph(val context: Context) {
      */
     val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            // OkHttp sends at most 5 requests to one host at a time by default: with 10 pages at once the
+            // other 5 waited inside it, and a small page "waited for the model" 21 s
+            .dispatcher(
+                Dispatcher().apply {
+                    maxRequestsPerHost = MAX_REQUESTS_PER_HOST
+                    maxRequests = MAX_REQUESTS
+                },
+            )
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(3, TimeUnit.MINUTES)
             .callTimeout(5, TimeUnit.MINUTES)
@@ -79,6 +88,12 @@ class PlusGraph(val context: Context) {
 
     fun aiClient(provider: AiProviderConfig): AiClient =
         AiClients.create(provider, secrets.get(provider.id), httpClient)
+
+    private companion object {
+        /** More than any step's pages at once ([plus.translate.PageTranslator] takes 10). */
+        const val MAX_REQUESTS_PER_HOST = 16
+        const val MAX_REQUESTS = 32
+    }
 
     // Any Re:Lad setting change means pages may look different: let the reader reload them.
     // Kept in a field: SharedPreferences only holds listeners weakly.
