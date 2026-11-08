@@ -56,7 +56,7 @@ class TranslationChecksTest {
     fun `a name spelled another way in an English original is still checked`() {
         val english = bible.copy(characters = listOf(Character("Yoo Joonghyeok", "Ю Чжунхёк")))
         val regions = listOf(
-            line("YOO JOONGHYEOK WASN'T SUPPOSED TO", "Ю Чжунхёку не должны были"),
+            line("YOO JOONGHYEOK WASN'T SUPPOSED TO GO.", "Ю Чжунхёку не нужно было идти."),
             line("THERE'S NO WAY YOO JOONGHYUK WOULD KNOW.", "Ну, Ю Чунхёк этого точно не знает."),
         )
         TranslationChecks.check(regions, english) shouldBe
@@ -79,12 +79,44 @@ class TranslationChecksTest {
         val regions = listOf(
             line("THE POLICE ARE ALWAYS LOOKING OUT FOR YOU.", "THE POLICE ARE ALWAYS LOOKING OUT FOR YOU."),
             line("HP 100/100", "HP 100/100"),
-            line("POLICE", "POLICE"),
+            line("POLICE.", "POLICE."),
             line("SUNG JINWOO", "Сон Джину"),
         )
         TranslationChecks.check(regions, bible) shouldBe
             listOf(TranslationChecks.Problem(0, TranslationChecks.Kind.Untranslated))
         TranslationChecks.check(regions.take(1), bible.copy(language = "en")).shouldBeEmpty()
+    }
+
+    @Test
+    fun `a sentence an English original splits over two bubbles goes back with both halves`() {
+        val regions = listOf(
+            line("THE REAL ONE GOT FIRED", "Настоящий уже уволен"),
+            line("BECAUSE THE FAKE IS ACTING UP, THAT IS A BIT...", "А вот то, что подделка взбрыкивает, немного…"),
+            line("OF COURSE, RATHER THAN MY SISTER,", "Разумеется, а не сестру,"),
+            line("IT'D BE QUICKER TO CONVINCE MY DAUGHTER.", "Думаю, будет быстрее убедить мою дочь."),
+            line("WHAT HAPPENED?", "Что случилось?"),
+            line("NOTHING.", "Ничего."),
+        )
+        TranslationChecks.check(regions, bible) shouldBe listOf(
+            TranslationChecks.Problem(0, TranslationChecks.Kind.SplitSentence, next = 1),
+            TranslationChecks.Problem(2, TranslationChecks.Kind.SplitSentence, next = 3),
+        )
+        val prompt = plus.translate.TranslationPrompt.fixes(regions, TranslationChecks.check(regions, bible))
+        prompt.contains("id 0: THE REAL ONE GOT FIRED") shouldBe true
+        prompt.contains("and id 1: BECAUSE THE FAKE IS ACTING UP") shouldBe true
+    }
+
+    @Test
+    fun `cries, sounds and Japanese bubbles without end marks are not split sentences`() {
+        val sfx = TextRegion(RegionType.Sfx, Box(0, 0, 10, 10), "BOOM", "БУМ")
+        val regions = listOf(
+            line("HM", "Хм"),
+            line("WELL THEN", "Ну тогда"),
+            sfx,
+            line("WAIT", "Стой"),
+        )
+        TranslationChecks.check(regions, bible).shouldBeEmpty()
+        TranslationChecks.check(listOf(line("俺は", "Я"), line("行く", "иду")), bible).shouldBeEmpty()
     }
 
     @Test

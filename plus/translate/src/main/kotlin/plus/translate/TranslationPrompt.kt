@@ -71,7 +71,9 @@ object TranslationPrompt {
             - Jokes and wordplay: recreate the effect in ${language.promptName} rather than the literal words; if
               that is impossible, keep the meaning the plot needs.
             - ${soundEffectRule(translateSoundEffects, language)}
-            - Leave out page numbers, watermarks, scanlation credits and the series' logo or title lettering.
+            - Leave out page numbers, watermarks, the series' logo or title lettering, and everything from the
+              scanlators: credits, translator's notes (T/N), their own messages and requests (donations,
+              Patreon, Ko-fi, Discord, recruiting).
             - Leave out marks drawn on a character or their clothes (a symbol on a cheek, a crest,
               a pattern): they are part of the design, not text to read.
 
@@ -183,10 +185,21 @@ object TranslationPrompt {
         problems.forEach { problem ->
             val region = regions[problem.index]
             append("- id ").append(problem.index).append(": ").append(region.text.oneLine())
-            append(" → ").append(region.translation.oneLine()).append("\n  Problem: ")
+            append(" → ").append(region.translation.oneLine())
+            problem.next?.let { next ->
+                append("\n  and id ").append(next).append(": ").append(regions[next].text.oneLine())
+                append(" → ").append(regions[next].translation.oneLine())
+            }
+            append("\n  Problem: ")
             append(
                 when (problem.kind) {
                     TranslationChecks.Kind.Untranslated -> "part of it is left untranslated in the original script."
+                    TranslationChecks.Kind.SplitSentence ->
+                        "in the original these two bubbles are probably one sentence split in two. If so, the " +
+                            "two translations must read as that sentence split at the same place: the second " +
+                            "part goes on from the first (who does it, case, number), it is not a new sentence. " +
+                            "Give both ids, rewritten or as they are if they already read right. If they are " +
+                            "not one sentence (someone cuts in), keep them."
                     TranslationChecks.Kind.MixedScript ->
                         "a word mixes two alphabets (part of a name left in Latin letters): write it whole " +
                             "in the translation's alphabet, the same way as elsewhere on the page."
