@@ -7,6 +7,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -188,12 +189,14 @@ class PageProcessingEngineTest {
         val release = kotlinx.coroutines.CompletableDeferred<Unit>()
         var running = 0
         var most = 0
+        var calls = 0
 
         override val order = 1
 
         override fun signature(context: PageContext) = "v1"
 
         override suspend fun process(input: ByteArray, context: PageContext): ProcessedPage {
+            calls++
             running++
             most = maxOf(most, running)
             release.await()
@@ -217,6 +220,36 @@ class PageProcessingEngineTest {
         slow.release.complete(Unit)
         advanceUntilIdle()
         slow.running shouldBe 0
+    }
+
+    @Test
+    fun `the reader asking for a page the chapter walk is making does not ask the model again`() = runTest {
+        val slow = SlowProcessor("slow", concurrency = 10)
+        val engine = PageProcessingEngine(
+            processors = { listOf(slow) },
+            cache = PageCache(dir),
+            scope = workScope(),
+            parallelism = 4,
+        )
+        val walk = launch { engine.prepare(original, context) }
+        runCurrent()
+        slow.running shouldBe 1
+
+        engine.resolve(original, context).pending shouldBe true
+        runCurrent()
+        // And again while the queue's own job is the one running
+        val other = "other".toByteArray()
+        engine.resolve(other, context)
+        runCurrent()
+        engine.resolve(other, context).pending shouldBe true
+        runCurrent()
+
+        slow.calls shouldBe 2
+        slow.release.complete(Unit)
+        walk.join()
+        advanceUntilIdle()
+        slow.calls shouldBe 2
+        engine.resolve(original, context).pending shouldBe false
     }
 
     @Test

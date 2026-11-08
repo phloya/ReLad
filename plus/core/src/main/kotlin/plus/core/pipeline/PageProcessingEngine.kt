@@ -64,7 +64,12 @@ class PageProcessingEngine(
     val settingsVersion: StateFlow<Int> = _settingsVersion.asStateFlow()
 
     private val lock = Any()
+
+    /** Pages waiting in the queue or being made. */
     private val inFlight = mutableSetOf<String>()
+
+    /** Pages being made now: by the queue or by [prepare] in the chapter walk. */
+    private val running = mutableSetOf<String>()
 
     /** Each step's own limit on pages at once (see [PageProcessor.concurrency]). */
     private val permits = mutableMapOf<String, Semaphore>()
@@ -132,6 +137,8 @@ class PageProcessingEngine(
         val scheduled = synchronized(lock) {
             when {
                 recentlyFailed(plan.finalKey) -> false
+                // Being made now (often by the chapter walk): a second job would ask the model again
+                plan.finalKey in running -> return Resolved(plan.image, originalHash, pending = true)
                 plan.finalKey in inFlight -> true
                 else -> {
                     inFlight += plan.finalKey
@@ -207,6 +214,8 @@ class PageProcessingEngine(
         steps: List<Step>,
         context: PageContext,
     ) {
+        // One run per page at a time: the queue may get a page that is already being made
+        if (!synchronized(lock) { running.add(finalKey) }) return
         var image = input
         try {
             for (step in steps) {
@@ -227,7 +236,10 @@ class PageProcessingEngine(
             }
             _completed.tryEmit(originalHash)
         } finally {
-            synchronized(lock) { inFlight.remove(finalKey) }
+            synchronized(lock) {
+                running.remove(finalKey)
+                inFlight.remove(finalKey)
+            }
         }
     }
 
