@@ -111,8 +111,20 @@ jobs:
           tag="${{ steps.version.outputs.tag }}"
           version="${{ steps.version.outputs.version }}"
           mihon="${{ steps.version.outputs.mihon }}"
+          # A version with a suffix (0.2.0-beta.1) is a test version: a pre-release, which the in-app
+          # update check (GitHub's "latest release") skips
+          prerelease=""
+          test_note=""
+          case "$version" in
+            *-*)
+              prerelease="--prerelease"
+              test_note="**Test version.** It may have bugs; the app doesn't offer it as an update."
+              ;;
+          esac
           cat > notes.md <<EOF
           Re:Lad $version, based on [Mihon $mihon](https://github.com/mihonapp/mihon/releases/tag/v$mihon).
+
+          $test_note
 
           ### Which file to download
           - Most phones: \`relad-arm64-v8a-$version.apk\`
@@ -122,6 +134,6 @@ jobs:
 
           Signing certificate SHA-256: \`$RELAD_CERT_SHA256\`
           EOF
-          gh release create "$tag" dist/* --draft --verify-tag --title "Re:Lad $version" --notes-file notes.md
+          gh release create "$tag" dist/* --draft $prerelease --verify-tag --title "Re:Lad $version" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}
