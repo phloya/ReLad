@@ -6,7 +6,6 @@ import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Test
 import java.awt.BasicStroke
 import java.awt.Color
-import java.awt.Font
 import java.awt.GradientPaint
 import java.awt.RenderingHints
 import java.awt.geom.AffineTransform
@@ -38,17 +37,8 @@ class PlainLettersTest {
             outline: Color? = null,
             glow: Color? = null,
         ) {
-            val font = Font(Font.SANS_SERIF, Font.BOLD, 1).deriveFont(
-                AffineTransform(
-                    size.toDouble(),
-                    0.0,
-                    -slant * size,
-                    size.toDouble(),
-                    0.0,
-                    0.0,
-                ),
-            )
-            val shape = font.createGlyphVector(g.fontRenderContext, text).getOutline(x.toFloat(), y.toFloat())
+            val shape = AffineTransform.getTranslateInstance(x.toDouble(), y.toDouble())
+                .createTransformedShape(TestFonts.outline(text, size, slant))
             glow?.let {
                 // A soft glow: wide faint strokes under narrower ones
                 for (k in 4 downTo 1) {
@@ -59,11 +49,11 @@ class PlainLettersTest {
             }
             outline?.let {
                 g.color = it
-                g.stroke = BasicStroke(5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+                g.stroke = BasicStroke(5f + TestFonts.bold(size), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
                 g.draw(shape)
             }
             g.color = color
-            g.fill(shape)
+            TestFonts.fill(g, shape, size)
         }
 
         val pixels: IntArray get() = image.getRGB(0, 0, width, height, null, 0, width)
@@ -293,12 +283,13 @@ class PlainLettersTest {
     fun `white letters in a dark bubble on a white page are erased and set inside the bubble`() {
         val page = Page()
         page.fill(Color.WHITE)
-        // Two overlapping round lobes, the model's box reaching past them onto the white page
+        // Two overlapping round lobes, the model's box reaching past them onto the white page; the
+        // letters well inside them
         page.g.color = Color.BLACK
-        page.g.fillOval(60, 40, 170, 150)
+        page.g.fillOval(40, 35, 210, 160)
         page.g.fillOval(150, 110, 200, 170)
-        page.text("YOUNG MONARCH,", 85, 115, Color.WHITE, size = 18f)
-        page.text("I SHALL BID YOU", 175, 180, Color.WHITE, size = 18f)
+        page.text("YOUNG MONARCH,", 60, 115, Color.WHITE, size = 18f)
+        page.text("I SHALL BID YOU", 163, 180, Color.WHITE, size = 18f)
         page.text("FAREWELL", 195, 205, Color.WHITE, size = 18f)
         val pixels = page.pixels
         val region = TextRegion(
@@ -318,7 +309,7 @@ class PlainLettersTest {
                     val dy = (y - cy) / (ry - 6)
                     dx * dx + dy * dy < 1
                 }
-                if (inLobe(145.0, 115.0, 85.0, 75.0) || inLobe(250.0, 195.0, 100.0, 85.0)) {
+                if (inLobe(145.0, 115.0, 105.0, 80.0) || inLobe(250.0, 195.0, 100.0, 85.0)) {
                     (BubbleEraser.luminance(pixels[y * page.width + x]) < 60) shouldBe true
                 }
             }

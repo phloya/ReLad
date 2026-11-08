@@ -6,9 +6,8 @@ import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Test
 import java.awt.BasicStroke
 import java.awt.Color
-import java.awt.Font
 import java.awt.RenderingHints
-import java.awt.font.TextLayout
+import java.awt.geom.AffineTransform
 import java.awt.geom.Ellipse2D
 import java.awt.image.BufferedImage
 
@@ -31,7 +30,7 @@ class TextPlacerTest {
                 x += 7
             }
         }
-        private val font = Font(Font.SANS_SERIF, Font.BOLD, 20)
+        private val size = 20f
 
         fun bubble(cx: Int, cy: Int, rx: Int, ry: Int) {
             val shape = Ellipse2D.Float((cx - rx).toFloat(), (cy - ry).toFloat(), 2f * rx, 2f * ry)
@@ -49,22 +48,20 @@ class TextPlacerTest {
             var bottom = 0
             val pitch = 26
             for ((i, line) in lines.withIndex()) {
-                val layout = TextLayout(line, font, g.fontRenderContext)
-                val bounds = layout.bounds
-                val x = cx - bounds.width.toFloat() / 2 - bounds.x.toFloat()
-                val baseline = top + i * pitch - bounds.y.toFloat()
-                val outline = layout.getOutline(
-                    java.awt.geom.AffineTransform.getTranslateInstance(x.toDouble(), baseline.toDouble()),
-                )
+                val shape = TestFonts.outline(line, size)
+                val bounds = shape.bounds2D
+                val x = cx - bounds.width / 2 - bounds.x
+                val baseline = top + i * pitch - bounds.y
+                val outline = AffineTransform.getTranslateInstance(x, baseline).createTransformedShape(shape)
                 if (light) {
                     g.color = Color.BLACK
-                    g.stroke = BasicStroke(4f)
+                    g.stroke = BasicStroke(4f + TestFonts.bold(size))
                     g.draw(outline)
                     g.color = Color.WHITE
                 } else {
                     g.color = Color.BLACK
                 }
-                g.fill(outline)
+                TestFonts.fill(g, outline, size)
                 left = minOf(left, outline.bounds.x)
                 right = maxOf(right, outline.bounds.x + outline.bounds.width)
                 bottom = maxOf(bottom, outline.bounds.y + outline.bounds.height)
